@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: PHP ${{ matrix.php }} ${{ matrix.ts }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15]
+        php: ['8.4', '8.5']
+        ts: [nts, zts]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check out ext-appkit
+        uses: actions/checkout@v4
+        with:
+          repository: php-io-extensions/appkit
+          path: appkit
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          tools: none
+        env:
+          phpts: ${{ matrix.ts == 'zts' && 'ts' || 'nts' }}
+
+      - name: Build and install ext-appkit (the .so and the headers mindbrix compiles against)
+        working-directory: appkit
+        run: |
+          phpize
+          ./configure --enable-appkit
+          make -j"$(sysctl -n hw.ncpu)"
+          sudo make install
+
+      - name: Build
+        run: |
+          phpize
+          ./configure --enable-mindbrix
+          make -j"$(sysctl -n hw.ncpu)"
+
+      # php -n reads no ini, so it looks in its compiled-in extension_dir, not the
+      # pecl dir Homebrew's make install uses: load appkit from its build path.
+      - name: Load
+        run: |
+          php -n -d extension="$PWD/appkit/modules/appkit.so" -d extension="$PWD/modules/mindbrix.so" -r 'exit(extension_loaded("mindbrix") ? 0 : 1);'
+          php -n -d extension="$PWD/appkit/modules/appkit.so" -d extension="$PWD/modules/mindbrix.so" --ri mindbrix
+
+      # ViewTest and NativeRenderTest need a Metal device; the runner's must offer one.
+      - name: Test
+        run: |
+          composer install --no-interaction --no-progress
+          mkdir -p "$RUNNER_TEMP/php-ini"
+          printf 'extension=%s\nextension=%s\n' "$PWD/appkit/modules/appkit.so" "$PWD/modules/mindbrix.so" > "$RUNNER_TEMP/php-ini/mindbrix.ini"
+          PHP_INI_SCAN_DIR=":$RUNNER_TEMP/php-ini" php -d memory_limit=128M vendor/bin/pest --ci

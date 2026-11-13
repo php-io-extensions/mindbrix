@@ -1,0 +1,53 @@
+{
+    "name": "php-io-extensions/mindbrix",
+    "type": "php-ext",
+    "description": "1:1 PHP bindings of mindbrix/Rasterizer, a Metal vector renderer, as classes named after their Objective-C counterparts on ext-appkit's object model",
+    "keywords": [
+        "rasterizer",
+        "metal",
+        "vector",
+        "gpu",
+        "macos",
+        "php-ext"
+    ],
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Project Saturn Studios, LLC",
+            "email": "info@projectsaturnstudios.com"
+        }
+    ],
+    "require": {
+        "php": ">=8.4",
+        "ext-appkit": "^0.11.2"
+    },
+    "require-dev": {
+        "pestphp/pest": "^4.0"
+    },
+    "config": {
+        "allow-plugins": {
+            "pestphp/pest-plugin": true
+        }
+    },
+    "extra": {
+        "branch-alias": {
+            "dev-main": "0.11.x-dev"
+        }
+    },
+    "php-ext": {
+        "extension-name": "mindbrix",
+        "priority": 30,
+        "support-zts": true,
+        "support-nts": true,
+        "os-families": [
+            "darwin"
+        ],
+        "configure-options": [
+            {
+                "name": "enable-mindbrix",
+                "description": "Enable the mindbrix extension",
+                "needs-value": false
+            }
+        ]
+    }
+}
