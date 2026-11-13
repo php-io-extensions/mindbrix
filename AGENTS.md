@@ -1,6 +1,6 @@
 # Agent guidance — php-io-extensions/mindbrix
 
-1. **Read [`docs/superpowers/specs/2026-11-13-mindbrix-design.md`](docs/superpowers/specs/2026-11-13-mindbrix-design.md) first** before changing the API, the Objective-C, the build or packaging.
+1. **Read [`.okf/index.md`](.okf/index.md) first** before changing the API, the Objective-C, the build or packaging; open only the concepts the change touches. The design spec is [`docs/superpowers/specs/2026-11-13-mindbrix-design.md`](docs/superpowers/specs/2026-11-13-mindbrix-design.md).
 2. **Bindings are 1:1** at mindbrix/Rasterizer's public API (`RasterizerAPI.h`, `RasterizerView.h`). One PHP class per Objective-C class, one method per selector, keywords joined in camelCase (`addFill:ctm:color:evenOdd:clip:clipPath:blendMode:` → `addFillCtmColorEvenOddClipClipPathBlendMode()`). `init…` selectors are static and return `static`. No defaults, no composites, no convenience Rasterizer does not have. The C++ core (`Ra::`) is not bound.
 3. **Refusals** follow ext-appkit's rule (appkit AGENTS.md item 3): the binding declines a native call only when making it would cause memory unsafety, uncatchable process death, or VM corruption, and every refusal has a probe proving it. Translation (an NSException turned into `AppKitException`) is not a refusal.
 4. **Written out.** Every `ZEND_METHOD` is written by hand, never made by a macro: the stub is the declaration.
@@ -9,4 +9,5 @@
 7. **The stub is the declaration.** `stubs/RasterizerAPI.stub.php` (registered from `src/RasterizerAPI.m`) and `stubs/RasterizerView.stub.php` (from `src/RasterizerView.m`). Regenerate with `php84 /opt/homebrew/opt/php@8.4/lib/php/build/gen_stub.php stubs` and commit both. Never hand-edit `*_arginfo.h`.
 8. **Build.** Install ext-appkit first, then `./install-macos.sh` into Homebrew `php@8.4` and `php@8.4-zts`. Pest at `-d memory_limit=128M` on both. Tests need `composer install`; gate a commit on the suite's exit code.
 9. **No window.** Tests and checks render off-screen; never show a window or take over the screen without asking Angel.
-10. **Version** is `PHP_MINDBRIX_VERSION` in `php_mindbrix.h`: 0.11.0, the framework's line. macOS only.
+10. **Durable facts go in `.okf`.** Update the matching concept and append `.okf/log.md`; validate with the OKF validator (`--strict`).
+11. **Version** is `PHP_MINDBRIX_VERSION` in `php_mindbrix.h`: 0.11.0, the framework's line. macOS only.
