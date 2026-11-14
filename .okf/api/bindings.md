@@ -41,4 +41,6 @@ Enums `RACapStyle`, `RAJoinStyle`, `RABlendMode`: int-backed, cases upper case w
 
 `CGRect` → appkit `NSRect`, `CGPoint` → `NSPoint`; appkit `NSRange`, `NSURL`, `NSAttributedString`, `CGColor`, `CGImage`. `CGPathRef` → appkit `CFType`, checked against `CGPathGetTypeID()`. `NSArray<RAPaint *>` → list of RAPaint; `NSArray<NSNumber *>` → list of int|float. `CGRectNull` = `new NSRect(INF, INF, 0, 0)`.
 
+Geometry must be finite: non-finite path coordinates, shape rects, corner sizes, transform fields, stroke widths and dashes raise `ValueError` ([safety](/architecture/safety.md)).
+
 Upstream behaviour passed through: a path's `bounds()` is empty until a scene validates it; `dashedCopy` with fewer than two lengths answers the path itself; mismatched gradient counts leave a default paint; `addImageCtm` ignores non-image paints.

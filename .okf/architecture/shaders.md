@@ -16,7 +16,7 @@ sources:
 
 Problem: `RasterizerLayer -init` builds all pipelines from `-[MTLDevice newDefaultLibrary]` outside SwiftPM[^layer-mm], which reads `default.metallib` from the main bundle. PHP has none, and Command Line Tools ship no offline `metal` compiler.
 
-Route, upstream untouched:
+Route, upstream files untouched by it:
 
 1. `tools/shaders.php` writes `src/shaders.inc`: `Shaders.metal` with its one import, `Rasterizer.h`, inlined, as a C string. `tests/ShadersTest.php` fails while stale.
 2. `src/prelude.h`, force-included (`-include`) into `RasterizerLayer.mm` only: imports Metal, then `#define newDefaultLibrary newLibraryWithSource:mindbrix_shader_source() options:nil error:nil`. Metal's own declaration is read first, so only upstream's call site changes; both are "new"-family (+1), ARC ownership unchanged.

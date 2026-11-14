@@ -50,3 +50,6 @@ composer.lock
 *.la
 *.lo
 *.o
+
+# Angel's upstream PR notes for lib/Rasterizer's local patch: not committed
+/UPSTREAM-PR.md

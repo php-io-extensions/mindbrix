@@ -64,9 +64,39 @@ static bool mindbrix_transform_from(zend_object *obj, uint32_t arg_num, CGAffine
 			return false;
 		}
 		v[i] = Z_DVAL_P(prop);
+		if (!isfinite(v[i])) {
+			zend_argument_value_error(arg_num, "must have finite properties");
+			return false;
+		}
 	}
 	*out = CGAffineTransformMake(v[0], v[1], v[2], v[3], v[4], v[5]);
 	return true;
+}
+
+/*
+ * Geometry Rasterizer subdivides must be finite. Its curve writers count subdivisions in a float
+ * (GeometryWriter::Cubic and ::Quadratic, looping while (--count)); INF or NaN geometry makes a
+ * count that never reaches 0, so the display drawing it never returns and memory grows until the
+ * process is killed. lib/Rasterizer carries a fix for the loop (design spec, "Curve subdivision");
+ * the binding also refuses non-finite geometry, so it holds against an unpatched Rasterizer.
+ * Clip rects are not checked: CGRectNull (infinite origin) is how a caller asks for no clip.
+ */
+static bool mindbrix_finite(uint32_t arg_num, double v)
+{
+	if (isfinite(v)) {
+		return true;
+	}
+	zend_argument_value_error(arg_num, "must be finite");
+	return false;
+}
+
+static bool mindbrix_finite_rect(uint32_t arg_num, NSRect r)
+{
+	if (isfinite(r.origin.x) && isfinite(r.origin.y) && isfinite(r.size.width) && isfinite(r.size.height)) {
+		return true;
+	}
+	zend_argument_value_error(arg_num, "must have finite properties");
+	return false;
 }
 
 static void mindbrix_return_transform(zval *rv, CGAffineTransform t)
@@ -343,7 +373,7 @@ ZEND_METHOD(RAPath, initWithRect)
 	ZEND_PARSE_PARAMETERS_START(1, 1)
 		Z_PARAM_OBJ_OF_CLASS(rect, appkit_ce_NSRect)
 	ZEND_PARSE_PARAMETERS_END();
-	if (!appkit_rect_from(rect, 1, &r)) {
+	if (!appkit_rect_from(rect, 1, &r) || !mindbrix_finite_rect(1, r)) {
 		RETURN_THROWS();
 	}
 
@@ -362,7 +392,7 @@ ZEND_METHOD(RAPath, initWithEllipse)
 	ZEND_PARSE_PARAMETERS_START(1, 1)
 		Z_PARAM_OBJ_OF_CLASS(rect, appkit_ce_NSRect)
 	ZEND_PARSE_PARAMETERS_END();
-	if (!appkit_rect_from(rect, 1, &r)) {
+	if (!appkit_rect_from(rect, 1, &r) || !mindbrix_finite_rect(1, r)) {
 		RETURN_THROWS();
 	}
 
@@ -384,7 +414,7 @@ ZEND_METHOD(RAPath, initWithRoundedRectCornerWidthCornerHeight)
 		Z_PARAM_DOUBLE(cornerWidth)
 		Z_PARAM_DOUBLE(cornerHeight)
 	ZEND_PARSE_PARAMETERS_END();
-	if (!appkit_rect_from(rect, 1, &r)) {
+	if (!appkit_rect_from(rect, 1, &r) || !mindbrix_finite_rect(1, r) || !mindbrix_finite(2, cornerWidth) || !mindbrix_finite(3, cornerHeight)) {
 		RETURN_THROWS();
 	}
 
@@ -403,6 +433,9 @@ ZEND_METHOD(RAPath, moveToY)
 		Z_PARAM_DOUBLE(x)
 		Z_PARAM_DOUBLE(y)
 	ZEND_PARSE_PARAMETERS_END();
+	if (!mindbrix_finite(1, x) || !mindbrix_finite(2, y)) {
+		RETURN_THROWS();
+	}
 
 	APPKIT_BEGIN
 		[(RAPath *) THIS_ID moveTo:x y:y];
@@ -417,6 +450,9 @@ ZEND_METHOD(RAPath, lineToY)
 		Z_PARAM_DOUBLE(x)
 		Z_PARAM_DOUBLE(y)
 	ZEND_PARSE_PARAMETERS_END();
+	if (!mindbrix_finite(1, x) || !mindbrix_finite(2, y)) {
+		RETURN_THROWS();
+	}
 
 	APPKIT_BEGIN
 		[(RAPath *) THIS_ID lineTo:x y:y];
@@ -433,6 +469,9 @@ ZEND_METHOD(RAPath, quadToY1X2Y2)
 		Z_PARAM_DOUBLE(x2)
 		Z_PARAM_DOUBLE(y2)
 	ZEND_PARSE_PARAMETERS_END();
+	if (!mindbrix_finite(1, x1) || !mindbrix_finite(2, y1) || !mindbrix_finite(3, x2) || !mindbrix_finite(4, y2)) {
+		RETURN_THROWS();
+	}
 
 	APPKIT_BEGIN
 		[(RAPath *) THIS_ID quadTo:x1 y1:y1 x2:x2 y2:y2];
@@ -451,6 +490,10 @@ ZEND_METHOD(RAPath, cubicToY1X2Y2X3Y3)
 		Z_PARAM_DOUBLE(x3)
 		Z_PARAM_DOUBLE(y3)
 	ZEND_PARSE_PARAMETERS_END();
+	if (!mindbrix_finite(1, x1) || !mindbrix_finite(2, y1) || !mindbrix_finite(3, x2) || !mindbrix_finite(4, y2)
+		|| !mindbrix_finite(5, x3) || !mindbrix_finite(6, y3)) {
+		RETURN_THROWS();
+	}
 
 	APPKIT_BEGIN
 		[(RAPath *) THIS_ID cubicTo:x1 y1:y1 x2:x2 y2:y2 x3:x3 y3:y3];
@@ -491,7 +534,7 @@ ZEND_METHOD(RAPath, addRect)
 	ZEND_PARSE_PARAMETERS_START(1, 1)
 		Z_PARAM_OBJ_OF_CLASS(rect, appkit_ce_NSRect)
 	ZEND_PARSE_PARAMETERS_END();
-	if (!appkit_rect_from(rect, 1, &r)) {
+	if (!appkit_rect_from(rect, 1, &r) || !mindbrix_finite_rect(1, r)) {
 		RETURN_THROWS();
 	}
 
@@ -508,7 +551,7 @@ ZEND_METHOD(RAPath, addEllipse)
 	ZEND_PARSE_PARAMETERS_START(1, 1)
 		Z_PARAM_OBJ_OF_CLASS(rect, appkit_ce_NSRect)
 	ZEND_PARSE_PARAMETERS_END();
-	if (!appkit_rect_from(rect, 1, &r)) {
+	if (!appkit_rect_from(rect, 1, &r) || !mindbrix_finite_rect(1, r)) {
 		RETURN_THROWS();
 	}
 
@@ -528,7 +571,7 @@ ZEND_METHOD(RAPath, addRoundedRectCornerWidthCornerHeight)
 		Z_PARAM_DOUBLE(cornerWidth)
 		Z_PARAM_DOUBLE(cornerHeight)
 	ZEND_PARSE_PARAMETERS_END();
-	if (!appkit_rect_from(rect, 1, &r)) {
+	if (!appkit_rect_from(rect, 1, &r) || !mindbrix_finite_rect(1, r) || !mindbrix_finite(2, cornerWidth) || !mindbrix_finite(3, cornerHeight)) {
 		RETURN_THROWS();
 	}
 
@@ -546,11 +589,20 @@ ZEND_METHOD(RAPath, dashedCopyWithPhaseLengths)
 		Z_PARAM_DOUBLE(phase)
 		Z_PARAM_ARRAY_HT(lengths)
 	ZEND_PARSE_PARAMETERS_END();
+	if (!mindbrix_finite(1, phase)) {
+		RETURN_THROWS();
+	}
 
 	APPKIT_BEGIN
 		NSArray *numbers = mindbrix_number_array(lengths, 2);
 		if (numbers == nil) {
 			RETURN_THROWS();
+		}
+		for (NSNumber *length in numbers) {
+			if (!isfinite([length doubleValue])) {
+				zend_argument_value_error(2, "must contain only finite values");
+				RETURN_THROWS();
+			}
 		}
 		appkit_box_objc(return_value, [(RAPath *) THIS_ID dashedCopyWithPhase:phase lengths:numbers]);
 	APPKIT_END
@@ -676,6 +728,9 @@ ZEND_METHOD(RADraw, setWidth)
 	ZEND_PARSE_PARAMETERS_START(1, 1)
 		Z_PARAM_DOUBLE(width)
 	ZEND_PARSE_PARAMETERS_END();
+	if (!mindbrix_finite(1, width)) {
+		RETURN_THROWS();
+	}
 
 	APPKIT_BEGIN
 		[(RADraw *) THIS_ID setWidth:width];
@@ -973,7 +1028,7 @@ ZEND_METHOD(RAScene, addStrokeCtmColorWidthCapStyleJoinStyleClipClipPathBlendMod
 		Z_PARAM_OBJ_OF_CLASS_OR_NULL(clipPath, mindbrix_ce_RAPath)
 		Z_PARAM_OBJ_OF_CLASS(blendMode, mindbrix_ce_RABlendMode)
 	ZEND_PARSE_PARAMETERS_END();
-	if (!mindbrix_transform_from(ctm, 2, &t) || !appkit_rect_from(clip, 7, &r)) {
+	if (!mindbrix_transform_from(ctm, 2, &t) || !mindbrix_finite(4, width) || !appkit_rect_from(clip, 7, &r)) {
 		RETURN_THROWS();
 	}
 

@@ -1237,11 +1237,15 @@ struct Rasterizer {
     }
     
     struct GeometryWriter {
+        static constexpr float kMaxCount = 16777216.f;     // 2^24: the largest float a --count loop counts down exactly
         virtual void writeSegment(float x0, float y0, float x1, float y1) = 0;
         virtual void Quadratic(float x0, float y0, float x1, float y1, float x2, float y2) {
             float ax, ay, a, count, dt, f2x, f1x, f2y, f1y;
             ax = x0 + x2 - x1 - x1, ay = y0 + y2 - y1 - y1, a = quadraticScale * (ax * ax + ay * ay);
-            count = a < quadraticScale ? 1.f : a < 8.f ? 2.f : 2.f + floorf(sqrtf(sqrtf(a))), dt = 1.f / count;
+            count = a < quadraticScale ? 1.f : a < 8.f ? 2.f : 2.f + floorf(sqrtf(sqrtf(a)));
+            if (!(count <= kMaxCount))      // NaN or infinite geometry: a float count past 2^24 never reaches 0
+                count = 1.f;
+            dt = 1.f / count;
             ax *= dt * dt, f2x = 2.f * ax, f1x = ax + 2.f * (x1 - x0) * dt, x1 = x0;
             ay *= dt * dt, f2y = 2.f * ay, f1y = ay + 2.f * (y1 - y0) * dt, y1 = y0;
             while (--count) {
@@ -1261,6 +1265,8 @@ struct Rasterizer {
             else {
                 float N = sqrtf(adot) / (fabsf(cubicScale) * kCubicMultiplier);
                 count = N <= 1.f ? 1.f : ceilf(cbrtf(N));
+                if (!(count <= kMaxCount))      // NaN or infinite geometry: a float count past 2^24 never reaches 0
+                    count = 1.f;
                 dt = 0.5f / count, dt2 = dt * dt;
                 x = x0, bx *= dt2, ax *= dt2 * dt, f3x = 6.f * ax, f2x = f3x + 2.f * bx, f1x = ax + bx + cx * dt;
                 y = y0, by *= dt2, ay *= dt2 * dt, f3y = 6.f * ay, f2y = f3y + 2.f * by, f1y = ay + by + cy * dt;

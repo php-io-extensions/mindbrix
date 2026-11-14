@@ -41,5 +41,9 @@ ext-mindbrix should guard against it.
   paths in a sandboxed deployment. A crafted SVG or PDF is parsed by vendored C/C++ that has not
   been audited here; the crash sweep (`tools/sweep.php`) feeds it only missing, empty and
   non-document files.
+- **Curve subdivision.** Upstream Rasterizer (2be4bc16) loops forever, growing memory until the
+  process is killed, on non-finite curve geometry: INF or NaN coordinates, or Metal-path device
+  coordinates from about 1e19. ext-mindbrix fixes the loop in its vendored copy and also refuses
+  non-finite geometry at the binding (`ValueError`). Details in `.okf/architecture/safety.md`.
 - **Shaders.** The Metal shaders are compiled at run time from source compiled into the extension
   (`src/shaders.inc`); nothing is loaded from disk.

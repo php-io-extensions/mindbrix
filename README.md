@@ -2,7 +2,7 @@
 
 1:1 PHP bindings of [mindbrix/Rasterizer](https://github.com/mindbrix/Rasterizer), a GPU vector renderer for macOS built on Metal. Paths, paints, gradients, images, text, SVG and PDF go into scenes; a `RasterizerView` draws a list of scenes each display frame.
 
-The extension is named `mindbrix` so it is not confused with other rasterizers. Rasterizer is compiled in from `lib/Rasterizer` (unchanged, commit `2be4bc16`, its 0.1.0); nothing needs installing besides ext-appkit, which mindbrix's classes build on.
+The extension is named `mindbrix` so it is not confused with other rasterizers. Rasterizer is compiled in from `lib/Rasterizer` (commit `2be4bc16`, its 0.1.0, with one local fix for a curve-subdivision hang, offered upstream); nothing needs installing besides ext-appkit, which mindbrix's classes build on.
 
 ## Basic usage
 
@@ -84,7 +84,7 @@ php --ri mindbrix
 ```
 mindbrix support => enabled
 Version => 0.11.0
-mindbrix/Rasterizer => 2be4bc16
+mindbrix/Rasterizer => 2be4bc16 + curve-subdivision patch
 ```
 
 ## API
@@ -107,7 +107,7 @@ Every class, selector and enum in Rasterizer's public headers (`RasterizerAPI.h`
 
 ### Errors
 
-An Objective-C exception Rasterizer raises becomes `AppKitException`. Arguments of the wrong type or with unset properties raise `TypeError` or `ValueError` before Rasterizer is called. `RasterizerView`'s methods are gated to the main thread, as appkit's views are.
+Geometry must be finite: an INF or NaN path coordinate, shape rect, corner size, transform field, stroke width or dash raises `ValueError` (clip rects still take `CGRectNull`). An Objective-C exception Rasterizer raises becomes `AppKitException`. Arguments of the wrong type or with unset properties raise `TypeError` or `ValueError` before Rasterizer is called. `RasterizerView`'s methods are gated to the main thread, as appkit's views are.
 
 ## Running the test suite
 
