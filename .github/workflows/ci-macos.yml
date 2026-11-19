@@ -1,0 +1,62 @@
+name: CI macOS
+
+on:
+  workflow_call:
+    inputs:
+      php:
+        required: true
+        type: string
+      ts:
+        required: true
+        type: string
+
+jobs:
+  build:
+    name: PHP ${{ inputs.php }} ${{ inputs.ts }} on macos-15
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check out ext-appkit
+        uses: actions/checkout@v4
+        with:
+          repository: php-io-extensions/appkit
+          path: appkit
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ inputs.php }}
+          tools: composer
+        env:
+          phpts: ${{ inputs.ts == 'zts' && 'ts' || 'nts' }}
+
+      - name: Build and install ext-appkit (the .so and the headers mindbrix compiles against)
+        working-directory: appkit
+        run: |
+          phpize
+          ./configure --enable-appkit
+          make -j"$(sysctl -n hw.ncpu)"
+          sudo make install
+
+      - name: Build
+        run: |
+          phpize
+          ./configure --enable-mindbrix
+          make -j"$(sysctl -n hw.ncpu)"
+
+      # php -n reads no ini, so it looks in its compiled-in extension_dir, not the
+      # pecl dir Homebrew's make install uses: load appkit from its build path.
+      - name: Load
+        run: |
+          php -n -d extension="$PWD/appkit/modules/appkit.so" -d extension="$PWD/modules/mindbrix.so" -r 'exit(extension_loaded("mindbrix") ? 0 : 1);'
+          php -n -d extension="$PWD/appkit/modules/appkit.so" -d extension="$PWD/modules/mindbrix.so" --ri mindbrix
+
+      # ViewTest and NativeRenderTest need a Metal device; the runner's must offer one.
+      # Composer sees ext-appkit only when the locally built modules are on the scan path.
+      - name: Test
+        run: |
+          mkdir -p "$RUNNER_TEMP/php-ini"
+          printf 'extension=%s\nextension=%s\n' "$PWD/appkit/modules/appkit.so" "$PWD/modules/mindbrix.so" > "$RUNNER_TEMP/php-ini/mindbrix.ini"
+          PHP_INI_SCAN_DIR=":$RUNNER_TEMP/php-ini" composer install --no-interaction --no-progress
+          PHP_INI_SCAN_DIR=":$RUNNER_TEMP/php-ini" php -d memory_limit=128M vendor/bin/pest --ci
