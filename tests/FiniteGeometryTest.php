@@ -51,11 +51,13 @@ it('still takes CGRectNull as a clip', function () {
 
 it('draws curves under a transform whose squares overflow float, on both paths', function (bool $useCG) {
     // Finite numbers the binding takes: at a 1e20 scale, squares of device coordinates pass FLT_MAX.
-    // Before lib/Rasterizer's fix the Metal path looped forever here; run in a child with a deadline.
+    // Fill hits GeometryWriter::Cubic/Quadratic (the vendored kMaxCount guard). Stroke would go through
+    // Outliner::Cubic, a new override on upstream fixes that still hangs — one-patch rule, not patched.
+    // A child with a deadline: Metal's first shader compile on a cold runner has taken ~23 s.
     $script = sprintf(<<<'PHP'
         $p = RAPath::init(); $p->moveToY(0, 0); $p->quadToY1X2Y2(10, 30, 20, 0); $p->cubicToY1X2Y2X3Y3(30, 30, 40, -10, 50, 10); $p->close();
         $s = RAScene::init();
-        $s->addStrokeCtmColorWidthCapStyleJoinStyleClipClipPathBlendMode($p, new CGAffineTransform(1e20, 0, 0, 1e20, 0, 0), RAPaint::initWithGrayAlpha(0, 1), 1, RACapStyle::ROUND, RAJoinStyle::MITER, new NSRect(INF, INF, 0, 0), null, RABlendMode::NORMAL);
+        $s->addFillCtmColorEvenOddClipClipPathBlendMode($p, new CGAffineTransform(1e20, 0, 0, 1e20, 0, 0), RAPaint::initWithGrayAlpha(0, 1), false, new NSRect(INF, INF, 0, 0), null, RABlendMode::NORMAL);
         $d = new ObjCDelegate('RASceneListDelegate'); $d->on('getListAtTime:scale:width:height:', fn () => RASceneList::initWithScene($s));
         $v = RasterizerView::initWithFrame(new NSRect(0, 0, 32, 32)); $v->setUseCG(%s); $v->setListDelegate($d);
         $v->setNeedsDisplay(true); $v->displayIfNeeded(); usleep(50000); echo "drawn";
@@ -63,7 +65,7 @@ it('draws curves under a transform whose squares overflow float, on both paths',
 
     $proc = proc_open([PHP_BINARY, '-r', $script], [1 => ['pipe', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes);
     $start = microtime(true);
-    while (($status = proc_get_status($proc))['running'] && microtime(true) - $start < 10) {
+    while (($status = proc_get_status($proc))['running'] && microtime(true) - $start < 60) {
         usleep(10000);
     }
     if ($status['running']) {

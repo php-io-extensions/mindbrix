@@ -11,6 +11,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
+      # macos-15 hosted runners pick up one job; queued siblings were cancelled after ~15 min.
+      max-parallel: 1
       matrix:
         os: [macos-15]
         php: ['8.4', '8.5']

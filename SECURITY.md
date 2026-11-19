@@ -43,7 +43,9 @@ ext-mindbrix should guard against it.
   non-document files.
 - **Curve subdivision.** Upstream Rasterizer (`2f57db8`, and `2be4bc16` before it) loops forever, growing memory until the
   process is killed, on non-finite curve geometry: INF or NaN coordinates, or Metal-path device
-  coordinates from about 1e19. ext-mindbrix fixes the loop in its vendored copy and also refuses
-  non-finite geometry at the binding (`ValueError`). Details in `.okf/architecture/safety.md`.
+  coordinates from about 1e19. ext-mindbrix fixes `GeometryWriter::Cubic`/`Quadratic` in its vendored
+  copy and also refuses non-finite geometry at the binding (`ValueError`). Strokes on `fixes` still
+  hang at that scale: `Outliner::Cubic` is a new override and is not patched. Details in
+  `.okf/architecture/safety.md`.
 - **Shaders.** The Metal shaders are compiled at run time from source compiled into the extension
   (`src/shaders.inc`); nothing is loaded from disk.

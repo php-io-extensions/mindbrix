@@ -37,4 +37,6 @@ Fixed both ways (Angel's decision):
 - Vendored patch, 7 lines in `Rasterizer.hpp`: such a count becomes 1, the curve drawn as one piece; terminating counts untouched. The only difference from upstream (still present at `fixes` @ 2f57db8); Angel offers it upstream.
 - Binding refusals (`ValueError`) for non-finite path coordinates, shape rects, corner sizes, transform fields, stroke widths, dash phase and lengths. Clip rects exempt (`CGRectNull`).
 
-Sweep after the fix: 425 calls, 0 failures. Held by `tests/FiniteGeometryTest.php` (refusals, and a 1e20-scale curve drawn on both paths in a child with a deadline).
+A second hang on the same 1e20-scale finite geometry, new at `fixes` @ 2f57db8: `Outliner::Cubic` (tangent-preserving cubics for strokes) sets `m = ceilf(cbrtf(a / (54 * allowed)))` and loops `for (i = 1; i <= m; i++)`. When `a` is Inf, `m` is Inf and the loop never ends. The one-patch rule leaves this unpatched. Fills use the patched `GeometryWriter`; strokes do not.
+
+Sweep after the GeometryWriter fix: 425 calls, 0 failures. Held by `tests/FiniteGeometryTest.php` (refusals, and a 1e20-scale *fill* drawn on both paths in a child with a deadline).
