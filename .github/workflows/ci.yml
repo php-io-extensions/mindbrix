@@ -55,9 +55,10 @@ jobs:
           php -n -d extension="$PWD/appkit/modules/appkit.so" -d extension="$PWD/modules/mindbrix.so" --ri mindbrix
 
       # ViewTest and NativeRenderTest need a Metal device; the runner's must offer one.
+      # Composer sees ext-appkit only when the locally built modules are on the scan path.
       - name: Test
         run: |
-          composer install --no-interaction --no-progress
           mkdir -p "$RUNNER_TEMP/php-ini"
           printf 'extension=%s\nextension=%s\n' "$PWD/appkit/modules/appkit.so" "$PWD/modules/mindbrix.so" > "$RUNNER_TEMP/php-ini/mindbrix.ini"
+          PHP_INI_SCAN_DIR=":$RUNNER_TEMP/php-ini" composer install --no-interaction --no-progress
           PHP_INI_SCAN_DIR=":$RUNNER_TEMP/php-ini" php -d memory_limit=128M vendor/bin/pest --ci
