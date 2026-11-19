@@ -2,7 +2,7 @@
 #include "../stubs/RasterizerAPI_arginfo.h"
 
 _Static_assert(kCapButt == 0 && kCapSquare == 1 && kCapRound == 2, "RACapStyle values moved");
-_Static_assert(kJoinMiter == 0 && kJoinRound == 1, "RAJoinStyle values moved");
+_Static_assert(kJoinMiter == 0 && kJoinRound == 1 && kJoinBevel == 2, "RAJoinStyle values moved");
 _Static_assert(kRABlendNormal == 0 && kRABlendMultiply == 1 && kRABlendScreen == 2 && kRABlendOverlay == 3
 	&& kRABlendDarken == 4 && kRABlendLighten == 5 && kRABlendColorDodge == 6 && kRABlendColorBurn == 7
 	&& kRABlendSoftLight == 8 && kRABlendHardLight == 9 && kRABlendDifference == 10 && kRABlendExclusion == 11
@@ -523,6 +523,23 @@ ZEND_METHOD(RAPath, addCGPath)
 
 	APPKIT_BEGIN
 		[(RAPath *) THIS_ID addCGPath:cg];
+	APPKIT_END
+}
+
+ZEND_METHOD(RAPath, writeToCGPath)
+{
+	zend_object *path;
+
+	ZEND_PARSE_PARAMETERS_START(1, 1)
+		Z_PARAM_OBJ_OF_CLASS(path, appkit_ce_CFType)
+	ZEND_PARSE_PARAMETERS_END();
+	CGPathRef cg = mindbrix_cgpath_from(path, 1);
+	if (cg == NULL) {
+		RETURN_THROWS();
+	}
+
+	APPKIT_BEGIN
+		[(RAPath *) THIS_ID writeToCGPath:(CGMutablePathRef) cg];
 	APPKIT_END
 }
 

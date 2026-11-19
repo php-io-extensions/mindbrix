@@ -1,5 +1,5 @@
 /* This is a generated file, edit the .stub.php file instead.
- * Stub hash: ac5b05341e9f4238da80a1394358e25c2b7fa871 */
+ * Stub hash: a06a16855cfc76c75588427e2f7064dda10716ea */
 
 ZEND_BEGIN_ARG_INFO_EX(arginfo_class_CGAffineTransform___construct, 0, 0, 6)
 	ZEND_ARG_TYPE_INFO(0, a, IS_DOUBLE, 0)
@@ -104,6 +104,8 @@ ZEND_END_ARG_INFO()
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_class_RAPath_addCGPath, 0, 1, IS_VOID, 0)
 	ZEND_ARG_OBJ_INFO(0, path, CFType, 0)
 ZEND_END_ARG_INFO()
+
+#define arginfo_class_RAPath_writeToCGPath arginfo_class_RAPath_addCGPath
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_class_RAPath_addRect, 0, 1, IS_VOID, 0)
 	ZEND_ARG_OBJ_INFO(0, rect, NSRect, 0)
@@ -351,6 +353,7 @@ ZEND_METHOD(RAPath, quadToY1X2Y2);
 ZEND_METHOD(RAPath, cubicToY1X2Y2X3Y3);
 ZEND_METHOD(RAPath, close);
 ZEND_METHOD(RAPath, addCGPath);
+ZEND_METHOD(RAPath, writeToCGPath);
 ZEND_METHOD(RAPath, addRect);
 ZEND_METHOD(RAPath, addEllipse);
 ZEND_METHOD(RAPath, addRoundedRectCornerWidthCornerHeight);
@@ -442,6 +445,7 @@ static const zend_function_entry class_RAPath_methods[] = {
 	ZEND_ME(RAPath, cubicToY1X2Y2X3Y3, arginfo_class_RAPath_cubicToY1X2Y2X3Y3, ZEND_ACC_PUBLIC)
 	ZEND_ME(RAPath, close, arginfo_class_RAPath_close, ZEND_ACC_PUBLIC)
 	ZEND_ME(RAPath, addCGPath, arginfo_class_RAPath_addCGPath, ZEND_ACC_PUBLIC)
+	ZEND_ME(RAPath, writeToCGPath, arginfo_class_RAPath_writeToCGPath, ZEND_ACC_PUBLIC)
 	ZEND_ME(RAPath, addRect, arginfo_class_RAPath_addRect, ZEND_ACC_PUBLIC)
 	ZEND_ME(RAPath, addEllipse, arginfo_class_RAPath_addEllipse, ZEND_ACC_PUBLIC)
 	ZEND_ME(RAPath, addRoundedRectCornerWidthCornerHeight, arginfo_class_RAPath_addRoundedRectCornerWidthCornerHeight, ZEND_ACC_PUBLIC)
@@ -547,6 +551,10 @@ static zend_class_entry *register_class_RAJoinStyle(void)
 	zval enum_case_ROUND_value;
 	ZVAL_LONG(&enum_case_ROUND_value, 1);
 	zend_enum_add_case_cstr(class_entry, "ROUND", &enum_case_ROUND_value);
+
+	zval enum_case_BEVEL_value;
+	ZVAL_LONG(&enum_case_BEVEL_value, 2);
+	zend_enum_add_case_cstr(class_entry, "BEVEL", &enum_case_BEVEL_value);
 
 	return class_entry;
 }

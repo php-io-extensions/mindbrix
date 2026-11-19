@@ -21,9 +21,6 @@ struct RasterizerCG {
     }
     
     static void renderList(const Ra::SceneList& list, Ra::Bounds bounds, CGContextRef ctx) {
-        CGAffineTransform m = CGContextGetCTM(ctx);
-        CGFloat scale = sqrt(abs(m.a * m.d - m.b * m.c));
-        
         CGContextConcatCTM(ctx, CGFromTransform(list.ctm));
         
         for (int j = 0; j < list.scenes.size(); j++) {
@@ -65,7 +62,7 @@ struct RasterizerCG {
                     if (list.params.showOutlines) {
                         CGAffineTransform m = CGContextGetCTM(ctx);
                         CGFloat s = sqrt(abs(m.a * m.d - m.b * m.c));
-                        CGContextSetLineWidth(ctx, scale * 0.5 / s);
+                        CGContextSetLineWidth(ctx, 1.f / s);
                         if (draw.width)
                             CGContextSetRGBStrokeColor(ctx, 1, 0, 0, 1);
                         else
@@ -74,12 +71,12 @@ struct RasterizerCG {
                     } else if (draw.width) {
                         CGAffineTransform m = CGContextGetCTM(ctx);
                         CGFloat s = sqrt(abs(m.a * m.d - m.b * m.c));
-                        CGContextSetLineWidth(ctx, draw.width < 0.f ? -scale * draw.width / s : draw.width);
+                        CGContextSetLineWidth(ctx, draw.width < 0.f ? -draw.width / s : draw.width);
                         bool square = draw.flags & Ra::Draw::kSquareCap;
                         bool round = draw.flags & Ra::Draw::kRoundCap;
                         CGContextSetLineCap(ctx, round ? kCGLineCapRound : square ? kCGLineCapSquare : kCGLineCapButt);
-                        bool roundJoin = draw.flags & Ra::Draw::kRoundJoin;
-                        CGContextSetLineJoin(ctx, roundJoin ? kCGLineJoinRound : kCGLineJoinMiter);
+                        bool roundJoin = draw.flags & Ra::Draw::kRoundJoin, bevelJoin = draw.flags & Ra::Draw::kBevelJoin;
+                        CGContextSetLineJoin(ctx, roundJoin ? kCGLineJoinRound : bevelJoin ? kCGLineJoinBevel : kCGLineJoinMiter);
                         
                         if (paint.isGradient() || paint.isImage()) {
                             CGContextSaveGState(ctx);
@@ -285,6 +282,34 @@ struct RasterizerCG {
                     break;
                 case Ra::Geometry::kClose:
                     CGContextClosePath(ctx);
+                    index++;
+                    break;
+            }
+        }
+    }
+    
+    static void writePathToCGPath(const Ra::Geometry *g, CGMutablePathRef path) {
+        for (size_t index = 0; index < g->types.end; ) {
+            float *p = g->points.base + index * 2;
+            switch (*(g->types.base + index)) {
+                case Ra::Geometry::kMove:
+                    CGPathMoveToPoint(path, NULL, p[0], p[1]);
+                    index++;
+                    break;
+                case Ra::Geometry::kLine:
+                    CGPathAddLineToPoint(path, NULL, p[0], p[1]);
+                    index++;
+                    break;
+                case Ra::Geometry::kQuadratic:
+                    CGPathAddQuadCurveToPoint(path, NULL, p[0], p[1], p[2], p[3]);
+                    index += 2;
+                    break;
+                case Ra::Geometry::kCubic:
+                    CGPathAddCurveToPoint(path, NULL, p[0], p[1], p[2], p[3], p[4], p[5]);
+                    index += 3;
+                    break;
+                case Ra::Geometry::kClose:
+                    CGPathCloseSubpath(path);
                     index++;
                     break;
             }

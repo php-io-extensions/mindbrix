@@ -10,11 +10,12 @@ enum RACapStyle: int
     case ROUND = 2;
 }
 
-/** RAJoinStyle: kJoinMiter, kJoinRound. */
+/** RAJoinStyle: kJoinMiter, kJoinRound, kJoinBevel. */
 enum RAJoinStyle: int
 {
     case MITER = 0;
     case ROUND = 1;
+    case BEVEL = 2;
 }
 
 /** RABlendMode: CGBlendMode's separable and non-separable modes, kRABlendNormal … kRABlendLuminosity. */
@@ -121,6 +122,9 @@ class RAPath extends NSObject
     /** $path is a CGPathRef (CFType::fromPointer() of one); any other CF type is a TypeError. */
     public function addCGPath(CFType $path): void {}
 
+    /** $path is a CGMutablePathRef (CFType::fromPointer() of one); any other CF type is a TypeError. */
+    public function writeToCGPath(CFType $path): void {}
+
     public function addRect(NSRect $rect): void {}
 
     public function addEllipse(NSRect $rect): void {}
@@ -155,7 +159,7 @@ class RADraw extends NSObject
 
     public function setColor(RAPaint $color): void {}
 
-    /** 0 fills, > 0 strokes. */
+    /** 0 fills, < 0 device width, > 0 draw width. */
     public function width(): float {}
 
     public function setWidth(float $width): void {}

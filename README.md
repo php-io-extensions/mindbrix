@@ -2,7 +2,7 @@
 
 1:1 PHP bindings of [mindbrix/Rasterizer](https://github.com/mindbrix/Rasterizer), a GPU vector renderer for macOS built on Metal. Paths, paints, gradients, images, text, SVG and PDF go into scenes; a `RasterizerView` draws a list of scenes each display frame.
 
-The extension is named `mindbrix` so it is not confused with other rasterizers. Rasterizer is compiled in from `lib/Rasterizer` (commit `2be4bc16`, its 0.1.0, with one local fix for a curve-subdivision hang, offered upstream); nothing needs installing besides ext-appkit, which mindbrix's classes build on.
+The extension is named `mindbrix` so it is not confused with other rasterizers. Rasterizer is compiled in from `lib/Rasterizer` (commit `2f57db8`, the `fixes` branch, with one local fix for a curve-subdivision hang, offered upstream); nothing needs installing besides ext-appkit, which mindbrix's classes build on.
 
 ## Basic usage
 
@@ -84,7 +84,7 @@ php --ri mindbrix
 ```
 mindbrix support => enabled
 Version => 0.11.0
-mindbrix/Rasterizer => 2be4bc16 + curve-subdivision patch
+mindbrix/Rasterizer => 2f57db8 + curve-subdivision patch
 ```
 
 ## API
@@ -95,8 +95,8 @@ Every class, selector and enum in Rasterizer's public headers (`RasterizerAPI.h`
 
 - **Names.** One method per selector, its keywords joined in camelCase: `addStroke:ctm:color:width:capStyle:joinStyle:clip:clipPath:blendMode:` is `addStrokeCtmColorWidthCapStyleJoinStyleClipClipPathBlendMode()`, `moveTo:y:` is `moveToY()`. `init…` selectors are static and return the class they are called on; `init()` is the plain `-init` each class is made with. Properties are a getter named as the property and a `set…` setter.
 - **Objects.** Every class is an ext-appkit object (`RAScene extends NSObject`, `RasterizerView extends NSView`): one PHP object per native object, retained while PHP holds it, with appkit's `pointer()` and `fromPointer()`.
-- **Values.** `CGRect` is appkit's `NSRect`, `CGPoint` is `NSPoint`, plus appkit's `NSRange`, `NSURL`, `NSAttributedString`, `CGColor` and `CGImage`. `CGAffineTransform` is mindbrix's own value class (`$a $b $c $d $tx $ty`). A `CGPathRef` is taken as appkit's `CFType` (from `CFType::fromPointer()`) and must be a CGPath. `NSArray<RAPaint *>` is a PHP list of `RAPaint`; `NSArray<NSNumber *>` a list of ints and floats.
-- **Enums** are int-backed PHP enums named after the Objective-C enum, cases upper case without the prefix: `kCapRound` is `RACapStyle::ROUND`, `kRABlendColorDodge` is `RABlendMode::COLOR_DODGE`.
+- **Values.** `CGRect` is appkit's `NSRect`, `CGPoint` is `NSPoint`, plus appkit's `NSRange`, `NSURL`, `NSAttributedString`, `CGColor` and `CGImage`. `CGAffineTransform` is mindbrix's own value class (`$a $b $c $d $tx $ty`). A `CGPathRef` or `CGMutablePathRef` (`RAPath::addCGPath()`, `RAPath::writeToCGPath()`, `RAPath::initWithCGPath()`) is taken as appkit's `CFType` (from `CFType::fromPointer()`) and must be a CGPath. `NSArray<RAPaint *>` is a PHP list of `RAPaint`; `NSArray<NSNumber *>` a list of ints and floats. A draw's `width` is 0 to fill, less than 0 for a device-space width, greater than 0 for a user-space width.
+- **Enums** are int-backed PHP enums named after the Objective-C enum, cases upper case without the prefix: `kCapRound` is `RACapStyle::ROUND`, `kJoinBevel` is `RAJoinStyle::BEVEL`, `kRABlendColorDodge` is `RABlendMode::COLOR_DODGE`.
 - **Clips.** `CGRectNull`, an empty rect or `CGRectInfinite` clips nothing; `new NSRect(INF, INF, 0, 0)` is `CGRectNull`.
 - **Bounds.** Rasterizer computes a path's bounds when a scene validates it, so `RAPath::bounds()` is an empty box until the path has been added to a scene.
 

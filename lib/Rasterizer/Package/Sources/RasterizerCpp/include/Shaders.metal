@@ -73,7 +73,7 @@ struct Instance {
         kIsRadial = 1 << 22,
         kIsGradient = 1 << 23,
         kIsImage = 1 << 24,     kIsCurve = 1 << 24,
-        kMolecule = 1 << 25,    kPCap = 1 << 25,
+        kMolecule = 1 << 25,    kPCap = 1 << 25,    kBevelJoin = 1 << 25,
         kFastEdges = 1 << 26,   kNCap = 1 << 26,
         kEdge = 1 << 27,        kF0 = 1 << 27,
         kRoundCap = 1 << 28,    kF1 = 1 << 28,
@@ -102,7 +102,8 @@ struct Params {
 
 // https://www.shadertoy.com/view/4dsfRS
 
-float sqBezier(float2 p0, float2 p1, float2 p2) {
+// The point of the quadratic nearest the origin
+float2 nearBezier(float2 p0, float2 p1, float2 p2) {
     // Calculate roots.
     float2 vb = p1 - p0, va, vc = { p0.y - p2.y, p2.x - p0.x }, rp1;
     float t = dot(vc, vb) / dot(vc, vc);
@@ -121,8 +122,7 @@ float sqBezier(float2 p0, float2 p1, float2 p2) {
         float2 x = 0.5 * (float2(z, -z) - q);
         float2 uv = sign(x) * pow(abs(x), third);
         float t = saturate(uv.x + uv.y - a);
-        float2 pt = fma(fma(va, t, vb), t, p0);
-        return dot(pt, pt);
+        return fma(fma(va, t, vb), t, p0);
     }
     float r = sqrt(-p * third);
     float v = acos(-0.5 * q / (r * r * r)) * third;
@@ -130,7 +130,7 @@ float sqBezier(float2 p0, float2 p1, float2 p2) {
     float2 ts = saturate(float2(m + m, -n - m) * r - a);
     float2 pt0 = fma(fma(va, ts.x, vb), ts.x, p0);
     float2 pt1 = fma(fma(va, ts.y, vb), ts.y, p0);
-    return min(dot(pt0, pt0), dot(pt1, pt1));
+    return dot(pt0, pt0) < dot(pt1, pt1) ? pt0 : pt1;
 }
 
 float dwinding(float x0, float y0, float x1, float y1, float w0, float w1) {
@@ -212,8 +212,9 @@ vertex OpaquesVertex opaques_vertex_main(const device Opaque *opaques [[buffer(1
                                          constant uint *pathCount [[buffer(13)]],
                                          constant uint *texCount [[buffer(14)]],
                                          constant Params *params [[buffer(15)]],
-                                         uint vid [[vertex_id]], uint iid [[instance_id]])
+                                         uint vi [[vertex_id]])
 {
+    const uint iid = vi >> 2, vid = vi & 3;     // Quads are 2 indexed triangles of 4 vertices each, not instances
     const device Opaque& inst = opaques[*reverse - 1 - iid];
     const uint iz = inst.iz & kPathIndexMask;
     const bool isGradient = inst.iz & Instance::kIsGradient;
@@ -302,8 +303,9 @@ vertex FastMoleculesVertex fast_molecules_vertex_main(const device Edge *edges [
                                 const device Instance *instances [[buffer(5)]],
                                 const device Point16 *points [[buffer(8)]],
                                 constant float *width [[buffer(10)]], constant float *height [[buffer(11)]],
-                                uint vid [[vertex_id]], uint iid [[instance_id]])
+                                uint vi [[vertex_id]])
 {
+    const uint iid = vi >> 2, vid = vi & 3;     // Quads are 2 indexed triangles of 4 vertices each, not instances
     FastMoleculesVertex vert;
     
     const device Edge& edge = edges[iid];
@@ -372,8 +374,9 @@ vertex QuadMoleculesVertex quad_molecules_vertex_main(const device Edge *edges [
                                 const device Instance *instances [[buffer(5)]],
                                 const device Point16 *points [[buffer(8)]],
                                 constant float *width [[buffer(10)]], constant float *height [[buffer(11)]],
-                                uint vid [[vertex_id]], uint iid [[instance_id]])
+                                uint vi [[vertex_id]])
 {
+    const uint iid = vi >> 2, vid = vi & 3;     // Quads are 2 indexed triangles of 4 vertices each, not instances
     QuadMoleculesVertex vert;
     
     const device Edge& edge = edges[iid];
@@ -437,8 +440,9 @@ vertex EdgesVertex edges_vertex_main(const device Edge *edges [[buffer(1)]],
                                      const device Instance *instances [[buffer(5)]],
                                      constant float *width [[buffer(10)]], constant float *height [[buffer(11)]],
                                      constant Params *params [[buffer(14)]],
-                                     uint vid [[vertex_id]], uint iid [[instance_id]])
+                                     uint vi [[vertex_id]])
 {
+    const uint iid = vi >> 2, vid = vi & 3;     // Quads are 2 indexed triangles of 4 vertices each, not instances
     EdgesVertex vert;
     const device Edge& edge = edges[iid];
     const device Instance& inst = instances[edge.ic & Edge::kMask];
@@ -517,7 +521,7 @@ struct InstancesVertex
     float4 position [[position]];
     float2 clip;
     float3 tex;
-    float u, v, w;
+    float u, v, w, e;
     float cover [[flat]];
     uint32_t iz;
     uint image [[flat]];
@@ -530,8 +534,9 @@ vertex InstancesVertex instances_vertex_main(
             constant uint *pathCount [[buffer(13)]],
             constant uint *texCount [[buffer(14)]],
             constant Params *params [[buffer(15)]],
-            uint vid [[vertex_id]], uint iid [[instance_id]])
+            uint vi [[vertex_id]])
 {
+    const uint iid = vi >> 2, vid = vi & 3;     // Quads are 2 indexed triangles of 4 vertices each, not instances
     InstancesVertex vert;
     constexpr float err = 1e-3;
     const bool isRight = vid & 1, isTop = vid & 2;
@@ -555,6 +560,7 @@ vertex InstancesVertex instances_vertex_main(
         const bool roundCap = w > 1.0 && inst.iz & Instance::kRoundCap;
         const bool squareCap = inst.iz & Instance::kSquareCap;
         const bool roundJoin = inst.iz & Instance::kRoundJoin;
+        const bool bevelJoin = inst.iz & Instance::kBevelJoin;
         
         bool isCurve;
         float2 no, m0, m1;
@@ -580,7 +586,20 @@ vertex InstancesVertex instances_vertex_main(
         isCurve = params->useCurves && x1 != FLT_MAX && area > 1e-3 * cdot;
         ow = isCurve ? 0.5 * area * rc : 0.0;
         
-        float caplimit = dw == 1.0 ? 0.0 : kMiterLimit;
+        // Each end of the piece is one of four kinds, which says how the piece's quad ends there & which edge clips its fragments:
+        // - A cap, where the path ends. The quad ends square to the chord, the cap's reach past the end, & the cap's edge clips it.
+        //   A hairline's joins are too small to show, so past a right angle they are caps.
+        // - A round join, which the fragments draw as a disc about the end. Past kMiterLimit the quad ends as a round cap's does.
+        // - A mitre. The quad ends on the mitre, which lies along the normal of prev + next, & nothing clips it.
+        // - A bevel, which is what a join that turns past kMiterLimit gets, & any join of a draw with bevel joins that turns
+        //   enough to show. Its edge is square to the mitre, which also lies along next - prev, & its distance from the join by
+        //   the length of next - prev is the stroke's half width by the sine of the turn. Past kMiterLimit each of its pieces
+        //   ends square, half the bevel's length past the join. Short of it the pieces meet as a mitre's do, & the edge cuts
+        //   the mitre's tip off.
+        // A point is inside an end's edge by clipOffset + clipNormal . (point - end)
+        const bool hairline = dw == 1.0;
+        const float halfWidth = dw - 0.5, bevelLimit = bevelJoin ? 0.999 : kMiterLimit;
+        const float capReach = squareCap ? dw : 0.5, curveReach = isCurve ? 0.41 * dw : 0.0;
         
         float px0, py0, pdot, nx1, ny1, ndot;
         px0 = x0 - (pcurve ? p.x1 : p.x0);
@@ -592,54 +611,64 @@ vertex InstancesVertex instances_vertex_main(
         
         no = float2(cx, cy) * rc;
         float2 prev, next, tangent;
+        // The quad is dw + ow to either side of the chord, which holds the piece. Its half of a mitre reaches further than that
+        // when the chord leans towards the join's other piece, so an end of the quad at a mitre is as wide as the mitre's tip is
+        // far from the chord, which is dw * |no . tangent| / (1 + prev . next) for the tangents prev & next at the join
+        float w0 = dw + ow, w1 = w0;
         
         next = normalize({ (isCurve ? x1 : x2) - x0, (isCurve ? y1 : y2) - y0 });
         prev = rsqrt(pdot) * float2(px0, py0);
-        pcap = pcap || pdot < 1e-6 || dot(prev, next) < caplimit;
-        tangent = pcap ? no : prev + next;
+        const float cosine0 = dot(prev, next), sine0 = abs(prev.x * next.y - prev.y * next.x);
+        const bool cap0 = pcap || pdot < 1e-6 || (hairline && cosine0 < 0.0), round0 = cap0 ? roundCap : roundJoin;
+        const bool square0 = cap0 || cosine0 < kMiterLimit, bevel0 = !cap0 && !round0 && cosine0 < bevelLimit;
+        const float reach0 = !square0 ? 0.0 : curveReach + (round0 ? dw : cap0 ? capReach : 0.5 * halfWidth * sine0 + 1.0);
+        const float2 clipNormal0 = bevel0 ? normalize(next - prev) : next;
+        const float clipOffset0 = round0 ? 0.0 : cap0 ? capReach : bevel0 ? 0.5 + halfWidth * sine0 / length(next - prev) : FLT_MAX;
+        tangent = square0 ? no : prev + next;
         m0 = float2(-tangent.y, tangent.x) / abs(dot(no, tangent));
+        if (!square0 && !roundJoin)
+            w0 = max(w0, dw * abs(dot(no, tangent)) / (1.0 + cosine0));
         
         prev = normalize({ x2 - (isCurve ? x1 : x0), y2 - (isCurve ? y1 : y0) });
         next = rsqrt(ndot) * float2(nx1, ny1);
-        ncap = ncap || ndot < 1e-6 || dot(prev, next) < caplimit;
-        tangent = ncap ? no : prev + next;
+        const float cosine1 = dot(prev, next), sine1 = abs(prev.x * next.y - prev.y * next.x);
+        const bool cap1 = ncap || ndot < 1e-6 || (hairline && cosine1 < 0.0), round1 = cap1 ? roundCap : roundJoin;
+        const bool square1 = cap1 || cosine1 < kMiterLimit, bevel1 = !cap1 && !round1 && cosine1 < bevelLimit;
+        const float reach1 = !square1 ? 0.0 : curveReach + (round1 ? dw : cap1 ? capReach : 0.5 * halfWidth * sine1 + 1.0);
+        const float2 clipNormal1 = bevel1 ? normalize(next - prev) : -prev;
+        const float clipOffset1 = round1 ? 0.0 : cap1 ? capReach : bevel1 ? 0.5 + halfWidth * sine1 / length(next - prev) : FLT_MAX;
+        tangent = square1 ? no : prev + next;
         m1 = float2(-tangent.y, tangent.x) / abs(dot(no, tangent));
+        if (!square1 && !roundJoin)
+            w1 = max(w1, dw * abs(dot(no, tangent)) / (1.0 + cosine1));
         
-        float lcap = (isCurve ? 0.41 * dw : 0.0) + (squareCap || roundCap ? dw : 0.5);
-        
-        float2 miter0 = (dw + ow) * m0;
-        float2 miter1 = (dw + ow) * m1;
         
         float lp, cx0, cy0, ln, cx1, cy1, t, dt, rt;
-        lp = select(0.0, lcap, pcap) + err, cx0 = x0 - no.x * lp, cy0 = y0 - no.y * lp;
-        ln = select(0.0, lcap, ncap) + err, cx1 = x2 + no.x * ln, cy1 = y2 + no.y * ln;
-        t = ((cx1 - cx0) * miter1.y - (cy1 - cy0) * miter1.x) / (miter0.x * miter1.y - miter0.y * miter1.x);
-        rt = sign * t, dt = sign * (rt < 0.0 ? 1.0 : min(1.0, rt));
-        dx = isTop ? fma(miter1.x, dt, cx1) : fma(miter0.x, dt, cx0);
-        dy = isTop ? fma(miter1.y, dt, cy1) : fma(miter0.y, dt, cy0);
+        lp = reach0 + err, cx0 = x0 - no.x * lp, cy0 = y0 - no.y * lp;
+        ln = reach1 + err, cx1 = x2 + no.x * ln, cy1 = y2 + no.y * ln;
+        // m0 & m1 reach 1 from the chord, so t is how far from the chord the quad's ends cross, which is as far as either goes
+        t = ((cx1 - cx0) * m1.y - (cy1 - cy0) * m1.x) / (m0.x * m1.y - m0.y * m1.x);
+        rt = sign * t, dt = isTop ? w1 : w0, dt = sign * (rt < 0.0 ? dt : min(dt, rt));
+        dx = isTop ? fma(m1.x, dt, cx1) : fma(m0.x, dt, cx0);
+        dy = isTop ? fma(m1.y, dt, cy1) : fma(m0.y, dt, cy0);
         
+        float clip0 = clipOffset0 + (dx - x0) * clipNormal0.x + (dy - y0) * clipNormal0.y;
+        float clip1 = clipOffset1 + (dx - x2) * clipNormal1.x + (dy - y2) * clipNormal1.y;
         if (!isCurve) {
             vert.u = (dx - x0) * -no.y + (dy - y0) * no.x;
-            float offset = roundCap ? 0.0 : squareCap ? dw : 0.5;
-            float d0 = (dx - x0) * no.x + (dy - y0) * no.y;
-            float d1 = (dx - x2) * -no.x + (dy - y2) * -no.y;
-            vert.v = pcap ? offset + d0 : roundJoin ? d0 : FLT_MAX;
-            vert.w = ncap ? offset + d1 : roundJoin ? d1 : FLT_MAX;
+            vert.v = clip0, vert.w = clip1, vert.e = 0.0;
             
-            flags = flags | ((pcap && roundCap) || (!pcap && roundJoin)) * Instance::kF0;
-            flags = flags | ((ncap && roundCap) || (!ncap && roundJoin)) * Instance::kF1;
+            flags = flags | round0 * Instance::kF0 | round1 * Instance::kF1;
         } else
         {
             // The vertex's barycentric coordinates in the control triangle, from which the fragment recovers the control points
             float ex = dx - x2, ey = dy - y2, rdet = 1.0 / (cx * ay - ax * cy);
             vert.u = (ey * ax - ex * ay) * rdet, vert.v = (ey * cx - ex * cy) * rdet;
+            vert.w = clip0, vert.e = clip1;
             
-            flags = flags | Instance::kIsCurve;
-            flags = flags | (pcap ? !roundCap : !roundJoin) * Instance::kF0;
-            flags = flags | (ncap ? !roundCap : !roundJoin) * Instance::kF1;
+            flags = flags | Instance::kIsCurve | !round0 * Instance::kF0 | !round1 * Instance::kF1;
         }
         vert.cover = w != 0 && w < 1.0 ? -w : dw;     // A thin stroke's dw is 1, so its cover is its alpha, negated
-        flags = flags | pcap * Instance::kPCap | ncap * Instance::kNCap;
     } else {
         const device Cell& cell = inst.quad.cell;
         dx = isRight ? cell.ux : cell.lx;
@@ -686,8 +715,6 @@ inline float4 instanceColor(InstancesVertex vert, texture2d<float> accumulation,
     float alpha = 1.0;
     if (vert.iz & Instance::kOutlines) {
         bool isCurve = vert.iz & Instance::kIsCurve;
-        bool squareCap = vert.iz & Instance::kSquareCap;
-        bool pcap = vert.iz & Instance::kPCap, ncap = vert.iz & Instance::kNCap;
         bool f0 = vert.iz & Instance::kF0, f1 = vert.iz & Instance::kF1;
         const float dw = max(1.0, vert.cover);
         
@@ -698,29 +725,36 @@ inline float4 instanceColor(InstancesVertex vert, texture2d<float> accumulation,
             alpha = vert.v < vert.w ? (f0 ? lozenge : rect) : (f1 ? lozenge : rect);
         } else
         {
-            float x0, y0, x1, y1, x2, y2, d0, dm0, d1, dm1, sqdist, sd0, sd1, cap, cap0, cap1;
+            float x0, y0, x1, y1, x2, y2, d0, dm0, d1, dm1, sqdist, sd0, sd1, cap0, cap1;
                 
             // Barycentrics are affine in screen space, so their derivatives invert to the control triangle's edges, p0 - p2 & p1 - p2
             float a = dfdx(vert.u), b = -dfdy(vert.u), c = dfdx(vert.v), d = -dfdy(vert.v), rdet = 1.0 / (a * d - b * c);
             float2 e0 = float2(d, -c) * rdet, e1 = float2(-b, a) * rdet, p2 = -(e0 * vert.u + e1 * vert.v), p0 = p2 + e0, p1 = p2 + e1;
             x0 = p0.x, y0 = p0.y, x1 = p1.x, y1 = p1.y, x2 = p2.x, y2 = p2.y;
             
-            sqdist = sqBezier(float2(x0, y0), float2(x1, y1), float2(x2, y2));
+            float2 near = nearBezier(p0, p1, p2);
+            sqdist = dot(near, near);
             float outline = saturate(dw - sqrt(sqdist));
             
-            cap = squareCap ? dw : 0.5;
+            // Past an end's normal the stroke is the strip along the end's tangent, clipped by the end's edge, w or e
             
             float bx = x0 - x1, by = y0 - y1, bdot = bx * bx + by * by, rb = rsqrt(bdot);
             d0 = (x0 * bx + y0 * by) * rb, dm0 = (x0 * -by + y0 * bx) * rb;
-            cap0 = (pcap ? saturate(cap + d0) : 1.0) * saturate(dw - abs(dm0));
+            cap0 = saturate(vert.w) * saturate(dw - abs(dm0));
             sd0 = f0 ? saturate(d0) : 1.0;
             
             float ax = x2 - x1, ay = y2 - y1, adot = ax * ax + ay * ay, ra = rsqrt(adot);
             d1 = (x2 * ax + y2 * ay) * ra, dm1 = (x2 * -ay + y2 * ax) * ra;
-            cap1 = (ncap ? saturate(cap + d1) : 1.0) * saturate(dw - abs(dm1));
+            cap1 = saturate(vert.e) * saturate(dw - abs(dm1));
             sd1 = f1 ? saturate(d1) : 1.0;
             
             alpha = cap0 * (1.0 - sd0) + cap1 * (1.0 - sd1) + (sd0 + sd1 - 1.0) * outline;
+            // Past an end's normal that draws the end's cap or its half of a join in place of the curve's stroke. Where the curve
+            // bends more tightly than the stroke is wide, though, the stroke of the rest of the curve reaches past the normal on
+            // the inside of the bend. It is told from the stroke round the end itself by the nearest point not being that end:
+            // the squares of its distances from the ends are 0 at an end & 1 a pixel away, which is all the switch needs
+            float2 n0 = near - p0, n2 = near - p2;
+            alpha = max(alpha, outline * saturate(min(dot(n0, n0), dot(n2, n2))));
         }
         alpha *= select(1.0, -vert.cover, vert.cover < 0.0);
     } else

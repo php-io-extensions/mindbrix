@@ -18,7 +18,7 @@
 #define kFastSegments 4
 #define kNullIndex 0xFFFF
 #define kPathIndexMask 0xFFFFF
-#define kMiterLimit -0.866025403784439
+#define kMiterLimit -0.875
 #define kCubicSolverLimit 5e-2f
 #define kDepthRange 0.1f
 #define kColorTextureWidth 64

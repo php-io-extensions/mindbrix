@@ -194,6 +194,10 @@
     RaCG::writeCGPathToPath(cgPath, _path);
 }
 
+- (void)writeToCGPath:(nonnull CGMutablePathRef)path {
+    RaCG::writePathToCGPath(_path.ptr, path);
+}
+
 - (RAPath *)dashedCopyWithPhase:(double)phase
                         lengths:(NSArray<NSNumber *>*)lengths {
     NSInteger count = lengths.count;
@@ -216,7 +220,7 @@ static uint8_t capFlags(RACapStyle capStyle) {
     return capStyle == kCapButt ? 0 : capStyle == kCapSquare ? Ra::Draw::kSquareCap : Ra::Draw::kRoundCap;
 }
 static uint8_t joinFlags(RAJoinStyle joinStyle) {
-    return joinStyle == kJoinMiter ? 0 : Ra::Draw::kRoundJoin;
+    return joinStyle == kJoinMiter ? 0 : joinStyle == kJoinBevel ? Ra::Draw::kBevelJoin : Ra::Draw::kRoundJoin;
 }
 
 @implementation RADraw {
@@ -291,10 +295,10 @@ static uint8_t joinFlags(RAJoinStyle joinStyle) {
     _d->flags = (_d->flags & ~(Ra::Draw::kSquareCap | Ra::Draw::kRoundCap)) | capFlags(capStyle);
 }
 - (RAJoinStyle)joinStyle {
-    return _d->flags & Ra::Draw::kRoundJoin ? kJoinRound : kJoinMiter;
+    return _d->flags & Ra::Draw::kRoundJoin ? kJoinRound : _d->flags & Ra::Draw::kBevelJoin ? kJoinBevel : kJoinMiter;
 }
 - (void)setJoinStyle:(RAJoinStyle)joinStyle {
-    _d->flags = (_d->flags & ~Ra::Draw::kRoundJoin) | joinFlags(joinStyle);
+    _d->flags = (_d->flags & ~(Ra::Draw::kRoundJoin | Ra::Draw::kBevelJoin)) | joinFlags(joinStyle);
 }
 - (CGRect)clip {
     return _d->clip.isHuge() ? CGRectInfinite : RaCG::CGRectFromBounds(_d->clip);
@@ -336,7 +340,8 @@ static uint8_t joinFlags(RAJoinStyle joinStyle) {
 
 #pragma mark - RAScene
 
-@implementation RAScene: NSObject {
+@implementation RAScene {
+    GlyphCache _cache;
     NSInteger _updates;     // The nesting depth of -updateDrawsInRange:usingBlock:, whose draws adding to the scene would move
 }
 
@@ -401,9 +406,8 @@ static uint8_t joinFlags(RAJoinStyle joinStyle) {
 }
 
 - (CGRect)addText:(NSAttributedString *)string inRect:(CGRect)rect ctm:(CGAffineTransform)ctm clip:(CGRect)clip {
-    GlyphCache cache;
     [self checkNotUpdating];
-    return RaCT::addTextToSceneInRect((__bridge CFAttributedStringRef)string, rect, ctm, clip, _scene, cache);
+    return RaCT::addTextToSceneInRect((__bridge CFAttributedStringRef)string, rect, ctm, clip, _scene, _cache);
 }
 
 + (NSInteger)pdfPageCountFromUrl:(nonnull NSURL *)url {

@@ -543,7 +543,7 @@ struct Rasterizer {
     struct Draw {
         // kHidden is set by callers to keep a draw's index without drawing it. validate() sets kInvisible for a hidden draw, or an invalid path or paint.
         // kClipEvenOdd fills the clip path even-odd, as kFillEvenOdd does the path, else it's non-zero
-        enum Flags { kFillEvenOdd = 1 << 1, kRoundCap = 1 << 2, kSquareCap = 1 << 3, kRoundJoin = 1 << 4, kClipEvenOdd = 1 << 5, kHidden = 1 << 6, kInvisible = 1 << 7 };
+        enum Flags { kBevelJoin = 1 << 0, kFillEvenOdd = 1 << 1, kRoundCap = 1 << 2, kSquareCap = 1 << 3, kRoundJoin = 1 << 4, kClipEvenOdd = 1 << 5, kHidden = 1 << 6, kInvisible = 1 << 7 };
 
         Draw() {}
         Draw(const Path& path, const Transform& ctm, const Paint& paint, float width, uint8_t flags, Bounds *clipBounds = nullptr, Path *clipPath = nullptr, uint8_t blendMode = kBlendNormal)
@@ -841,7 +841,7 @@ struct Rasterizer {
             kIsRadial = 1 << 22,
             kIsGradient = 1 << 23,
             kIsImage = 1 << 24,     kIsCurve = 1 << 24,
-            kMolecule = 1 << 25,    kPCap = 1 << 25,
+            kMolecule = 1 << 25,    kPCap = 1 << 25,    kBevelJoin = 1 << 25,
             kFastEdges = 1 << 26,   kNCap = 1 << 26,
             kEdge = 1 << 27,        kF0 = 1 << 27,
             kRoundCap = 1 << 28,    kF1 = 1 << 28,
@@ -874,7 +874,7 @@ struct Rasterizer {
         // kClipMask begins rendering a clip path's coverage into the clip mask, within the device bounds packed in begin, until kEnableClip.
         // Its end identifies the mask, so an encoder can skip rendering one the mask already holds. kBlendInstances are instances of draws
         // with blend modes, which blend in the shader, & kInstances blend with the hardware. A kInstancesBase begins a pass, & its end is
-        // the height of the accumulation texture's rows its group's edges use, from its top, so an encoder can limit an edges pass to them
+        // the height of the accumulation texture's rows the pass's edges use, from its top, so an encoder can limit an edges pass to them
         enum Type { kQuadEdges, kFastEdges, kFastMolecules, kQuadMolecules, kOpaques, kInstances, kSegmentsBase, kInstancesBase, kDisableClip, kEnableClip, kClipMask, kBlendInstances };
         static constexpr size_t kMaxBlendBatches = 32;     // Of a pass, beyond which all its instances are kBlendInstances
         struct Entry {
@@ -904,8 +904,6 @@ struct Rasterizer {
             Pass(size_t idx) : idx(idx) {}
             size_t count() const { return counts[0] + counts[1] + counts[2] + counts[3]; }
             size_t idx, height = 0, counts[4] = { 0, 0, 0, 0 };     // Its height is that of the rows of strips its cells use
-            // coalescePasses' group, its cells' offset in its rows, & their height, & writeContextToBuffer's entries for its edges & instances
-            size_t group = 0, offset = 0, groupHeight = 0, edgesEntry = 0, instancesEntry = 0;
         };
         void empty(Bounds device) {
             full = device, sheet = Bounds(0.f, 0.f, 0.f, 0.f), bzero(strips, sizeof(strips)), passes.empty();
@@ -1005,7 +1003,7 @@ struct Rasterizer {
                         }
                     }
                     m = draw.ctm.concat(ctm), det = fabsf(m.a * m.d - m.b * m.c);
-                    width = list.params.showOutlines ? 0.5f * scale : draw.width * (draw.width > 0.f ? sqrtf(det) : -scale);
+                    width = list.params.showOutlines ? 1.f : draw.width * (draw.width > 0.f ? sqrtf(det) : -1.f);
                     quad = draw.bnds.quad(m), dev = Bounds(quad).inset(-width, -width);
                     clip = dev.integral().intersect(clipBounds).intersect(maskBounds);
                     
@@ -1044,7 +1042,7 @@ struct Rasterizer {
                         Geometry *g = draw.path.ptr;
                         if (width) {
                             paths[iz].width = width;
-                            Blend *inst = new (blends.alloc(1)) Blend(iz | colorFlags | Instance::kOutlines | bool(draw.flags & Draw::kRoundCap) * Instance::kRoundCap | bool(draw.flags & Draw::kSquareCap) * Instance::kSquareCap | bool(draw.flags & Draw::kRoundJoin) * Instance::kRoundJoin);
+                            Blend *inst = new (blends.alloc(1)) Blend(iz | colorFlags | Instance::kOutlines | bool(draw.flags & Draw::kRoundCap) * Instance::kRoundCap | bool(draw.flags & Draw::kSquareCap) * Instance::kSquareCap | bool(draw.flags & Draw::kRoundJoin) * Instance::kRoundJoin | bool(draw.flags & Draw::kBevelJoin) * Instance::kBevelJoin);
                             
                             Bounds outlineClip = unclipped ? Bounds::huge() : clip.inset(-width, -width);
                             uint32_t i0 = uint32_t(outlines.idx), i1;
@@ -1053,7 +1051,7 @@ struct Rasterizer {
                             if (width > 4.f && softUnclipped())
                                 outliner.opaques = & opaques;
                             if (outliner.opaques == nullptr && g->isSegments())
-                                writeSegmentOutlines(g, m, outlineClip, unclipped, inst->iz);
+                                outliner.writeSegmentOutlines(g, m, outlineClip, unclipped);
                             else
                                 outliner.applyPath(g, m, outlineClip, unclipped, false);
                             i1 = uint32_t(outlines.idx);
@@ -1081,21 +1079,6 @@ struct Rasterizer {
                     }
                 }
             }
-        }
-        // Each line of a path of one line subpaths is an outline instance capped at both ends, as the Outliner would write it, but
-        // directly, as dots & dashes can be very many. Lines crossing the clip are whole, as their parts outside it are hidden
-        void writeSegmentOutlines(Geometry *g, Transform m, Bounds clip, bool unclipped, uint32_t iz) {
-            Instance *dst0 = outlines.prealloc(g->counts[Geometry::kLine]), *dst = dst0;
-            for (const float *p = g->points.base, *end = p + g->points.end; p < end; p += 4) {
-                float x0 = p[0] * m.a + p[1] * m.c + m.tx, y0 = p[0] * m.b + p[1] * m.d + m.ty;
-                float x1 = p[2] * m.a + p[3] * m.c + m.tx, y1 = p[2] * m.b + p[3] * m.d + m.ty;
-                if (unclipped || (fminf(y0, y1) < clip.uy && fmaxf(y0, y1) > clip.ly && fminf(x0, x1) < clip.ux && fmaxf(x0, x1) > clip.lx)) {
-                    Quadratic& quad = dst->outline.quad;
-                    dst->iz = iz, quad.x0 = x0, quad.y0 = y0, quad.x1 = FLT_MAX, quad.y1 = 0.f, quad.x2 = x1, quad.y2 = y1;
-                    dst->outline.prev = dst->outline.next = 0, dst++;
-                }
-            }
-            outlines.idx = outlines.end += dst - dst0;
         }
         // Clip commands are kClip blends, which split the instance batches. kClipMaskBegin's cell holds the clip mask's device bounds,
         // & the instances after it, up to the next kClipEnable, render the clip path's coverage into the clip mask. Its g & quad.base
@@ -1764,25 +1747,77 @@ struct Rasterizer {
             writeInstance(x0, y0, FLT_MAX, 0.f, x1, y1);
         }
         void Quadratic(float x0, float y0, float x1, float y1, float x2, float y2) {
-            float ax, bx, ay, by, cx, cy, dot, adot, bdot, cdot, cosine, t0, t1, dt;
+            float ax, bx, ay, by, dot, adot, bdot, cosine;
             ax = x2 - x1, bx = x1 - x0, ay = y2 - y1, by = y1 - y0;
             dot = ax * bx + ay * by, adot = ax * ax + ay * ay, bdot = bx * bx + by * by,
-            cosine = dot / sqrt(adot * bdot + 1e-12f);
-            if (cosine > 0.7071f) {
-                const float tan30 = 0.577350269189626f;
-                cx = x2 - x0, cy = y2 - y0, cdot = cx * cx + cy * cy;
-                t0 = (cx * bx + cy * by) / cdot - 0.5f;
-                t1 = (-cy * bx + cx * by) / cdot;
-                dt = copysign(1.f, t0), t0 = fabsf(t0), t1 = fabsf(t1);
-                dt *= fminf(t0, t1 / tan30) - t0;
-                writeInstance(x0, y0, x1 + dt * cx, y1 + dt * cy, x2, y2);
-            } else {
+            cosine = dot / sqrtf(adot * bdot + 1e-12f);
+            if (cosine > 0.7071f)
+                writeInstance(x0, y0, x1, y1, x2, y2);
+            else {
                 float a, b, t, s, tx0, tx1, x, ty0, ty1, y;
                 a = sqrtf(adot), b = sqrtf(bdot), t = b / (a + b), s = 1.0f - t;
                 tx0 = s * x0 + t * x1, tx1 = s * x1 + t * x2, x = s * tx0 + t * tx1;
                 ty0 = s * y0 + t * y1, ty1 = s * y1 + t * y2, y = s * ty0 + t * ty1;
                 writeInstance(x0, y0, tx0, ty0, x, y);
                 writeInstance(x, y, tx1, ty1, x2, y2);
+            }
+        }
+        // A join or a cap takes its direction from the quadratics next to it, so a stroked cubic's quadratics keep its tangents where
+        // it starts & ends. GeometryWriter::Cubic()'s don't: they pass through the cubic at their ends & middles, which leaves their
+        // tangents at its ends off by half its third difference, P3 - P0 - 3 * (P2 - P1), over the cube of their number, so a join
+        // changed with the scale.
+        // Where 1 quadratic is enough, its control point is where the cubic's end tangents meet. That is so if they meet ahead of
+        // both ends, & the quadratic stays within half of kCubicPrecision of the cubic, as GeometryWriter::Cubic()'s do: the one
+        // through the cubic's middle strays by at most sqrt(3) / 36 of the third difference, & moving its control point moves it
+        // by at most half as far.
+        // Otherwise the cubic is cut into equal parts, each written as a pair of quadratics. A part's own control points are 1 / 3
+        // of the way along its end tangents, & the pair's are 1 / 4 of the way, which is (P0 + 3 * P1) / 4 & (3 * P2 + P3) / 4 of
+        // the part's points. The pair meet at the middle of their control points, which is the part's own middle, so they join
+        // smoothly. A pair strays by at most 1 / 54 of its part's third difference, so there are the cube root of the cubic's,
+        // over 54 times the distance allowed, parts
+        void Cubic(float x0, float y0, float x1, float y1, float x2, float y2, float x3, float y3) {
+            const float allowed = 0.5f * kCubicPrecision, sqrt3over36 = 0.0481125224f, tiny = 1e-6f;
+            float cx, bx, ax, cy, by, ay, adot, a, room, ux, uy, vx, vy, wx, wy, den, s, t, qx, qy, dx, dy, ex, ey, px, py, nx, ny, jx, jy, m, h, i;
+            cx = 3.f * (x1 - x0), bx = 3.f * (x2 - x1), ax = x3 - x0 - bx, bx -= cx;
+            cy = 3.f * (y1 - y0), by = 3.f * (y2 - y1), ay = y3 - y0 - by, by -= cy;
+            adot = ax * ax + ay * ay;
+            if (adot + bx * bx + by * by < 1.f)     // Less than a pixel from a line, as in GeometryWriter::Cubic()
+                return writeSegment(x0, y0, x3, y3);
+            a = sqrtf(adot), room = allowed - sqrt3over36 * a;
+            if (room > 0.f) {
+                // The end tangents are along the first & last legs, or to the next control point if a leg has no length
+                ux = x1 - x0, uy = y1 - y0, vx = x3 - x2, vy = y3 - y2, wx = x3 - x0, wy = y3 - y0;
+                if (ux * ux + uy * uy < tiny)
+                    ux = x2 - x0, uy = y2 - y0;
+                if (vx * vx + vy * vy < tiny)
+                    vx = x3 - x1, vy = y3 - y1;
+                den = ux * vy - uy * vx;
+                if (den != 0.f) {
+                    // They meet s of the way along the first from the start, & t of the way back along the last from the end
+                    s = (wx * vy - wy * vx) / den, t = (ux * wy - uy * wx) / den;
+                    qx = x0 + s * ux, dx = qx - 0.25f * (3.f * (x1 + x2) - x0 - x3);
+                    qy = y0 + s * uy, dy = qy - 0.25f * (3.f * (y1 + y2) - y0 - y3);
+                    if (s > 0.f && t > 0.f && dx * dx + dy * dy <= 4.f * room * room)
+                        return Quadratic(x0, y0, qx, qy, x3, y3);
+                }
+            }
+            m = fmaxf(1.f, ceilf(cbrtf(a / (54.f * allowed)))), h = 1.f / m;
+            // Each part's start, & 1 / 4 of the way along its tangent there, which is the cubic's derivative over 4 * m
+            px = x0, py = y0, dx = 0.25f * h * cx, dy = 0.25f * h * cy;
+            for (i = 1.f; i <= m; i++, px = nx, py = ny, dx = ex, dy = ey) {
+                t = i * h;
+                nx = i == m ? x3 : ((ax * t + bx) * t + cx) * t + x0, ex = 0.25f * h * ((3.f * ax * t + 2.f * bx) * t + cx);
+                ny = i == m ? y3 : ((ay * t + by) * t + cy) * t + y0, ey = 0.25f * h * ((3.f * ay * t + 2.f * by) * t + cy);
+                jx = 0.5f * (px + dx + nx - ex), jy = 0.5f * (py + dy + ny - ey);
+                // Where the cubic's control point is on its end, the pair's is too, & that half leaves along its chord
+                if (dx * dx + dy * dy < tiny)
+                    writeSegment(px, py, jx, jy);
+                else
+                    Quadratic(px, py, px + dx, py + dy, jx, jy);
+                if (ex * ex + ey * ey < tiny)
+                    writeSegment(jx, jy, nx, ny);
+                else
+                    Quadratic(jx, jy, nx - ex, ny - ey, nx, ny);
             }
         }
         void EndSubpath(float x0, float y0, float x1, float y1, bool closed) {
@@ -1809,6 +1844,19 @@ struct Rasterizer {
             struct Quadratic& quad = dst->outline.quad;
             dst->iz = iz, quad.x0 = x0, quad.y0 = y0, quad.x1 = x1, quad.y1 = y1, quad.x2 = x2, quad.y2 = y2;
             dst->outline.prev = -1, dst->outline.next = 1;
+        }
+        void writeSegmentOutlines(Geometry *g, Transform m, Bounds clip, bool unclipped) {
+            Instance *dst0 = outlines->prealloc(g->counts[Geometry::kLine]), *dst = dst0;
+            for (const float *p = g->points.base, *end = p + g->points.end; p < end; p += 4) {
+                float x0 = p[0] * m.a + p[1] * m.c + m.tx, y0 = p[0] * m.b + p[1] * m.d + m.ty;
+                float x1 = p[2] * m.a + p[3] * m.c + m.tx, y1 = p[2] * m.b + p[3] * m.d + m.ty;
+                if (unclipped || (fminf(y0, y1) < clip.uy && fmaxf(y0, y1) > clip.ly && fminf(x0, x1) < clip.ux && fmaxf(x0, x1) > clip.lx)) {
+                    struct Quadratic& quad = dst->outline.quad;
+                    dst->iz = iz, quad.x0 = x0, quad.y0 = y0, quad.x1 = FLT_MAX, quad.y1 = 0.f, quad.x2 = x1, quad.y2 = y1;
+                    dst->outline.prev = dst->outline.next = 0, dst++;
+                }
+            }
+            outlines->idx = outlines->end += dst - dst0;
         }
         uint32_t iz;  Row<Instance> *outlines = nullptr;  Row<Opaque> *opaques = nullptr;
     };
@@ -1911,57 +1959,6 @@ struct Rasterizer {
         buffer.p16s = end;
     }
     
-    // Groups consecutive passes whose cells' rows fit in the accumulation texture together, & offsets each pass's cells in the group's
-    // rows, so a group's edges render in one edges pass, & its instances in one drawable pass, as each pass switch is costly. A group
-    // has at most kMaxGroupEdges edges, unless one pass has more, as an edges pass with too many is slower than two
-    static constexpr size_t kMaxGroupEdges = 200000;
-    static void coalescePasses(Context *contexts, size_t count) {
-        size_t group = 0, offset = 0, edges = 0, i, j, k, first = 0;
-        std::vector<Allocator::Pass *> passes;
-        for (i = 0; i < count; i++)
-            for (j = 0; j < contexts[i].allocator.passes.end; j++) {
-                Allocator::Pass *pass = contexts[i].allocator.passes.base + j;
-                size_t height = size_t(contexts[i].allocator.full.uy - contexts[i].allocator.full.ly);
-                if (offset + pass->height > height || (edges && edges + pass->count() > kMaxGroupEdges)) {
-                    for (k = first; k < passes.size(); k++)
-                        passes[k]->groupHeight = offset;
-                    group++, offset = 0, edges = 0, first = passes.size();
-                }
-                pass->group = group, pass->offset = offset, offset += pass->height, edges += pass->count();
-                passes.push_back(pass);
-            }
-        for (k = first; k < passes.size(); k++)
-            passes[k]->groupHeight = offset;
-    }
-    // Writes the contexts' entries, group by group: the edges of a group's passes, after their contexts' segments bases, then their
-    // instances, in order
-    static void writeEntries(Context *contexts, size_t count, Buffer& buffer) {
-        struct Ref { Context *ctx;  size_t ip; };
-        std::vector<Ref> refs;
-        for (size_t i = 0; i < count; i++)
-            for (size_t j = 0; j < contexts[i].allocator.passes.end; j++)
-                refs.push_back(Ref{ contexts + i, j });
-        auto add = [&](Context *ctx, size_t e0, size_t e1) {
-            for (size_t e = e0; e < e1; e++)
-                *(buffer.entries.alloc(1)) = ctx->entries[e];
-        };
-        for (size_t r0 = 0, r1; r0 < refs.size(); r0 = r1) {
-            size_t group = refs[r0].ctx->allocator.passes.base[refs[r0].ip].group;
-            for (r1 = r0; r1 < refs.size() && refs[r1].ctx->allocator.passes.base[refs[r1].ip].group == group; r1++) {
-                Context *ctx = refs[r1].ctx;  Allocator::Pass& pass = ctx->allocator.passes.base[refs[r1].ip];
-                if (pass.instancesEntry != pass.edgesEntry) {
-                    if (ctx->segments.end)      // Its kSegmentsBase is its first entry
-                        add(ctx, 0, 1);
-                    add(ctx, pass.edgesEntry, pass.instancesEntry);
-                }
-            }
-            for (size_t r = r0; r < r1; r++) {
-                Context *ctx = refs[r].ctx;  size_t ip = refs[r].ip;
-                bool isLast = ip + 1 == ctx->allocator.passes.end;
-                add(ctx, ctx->allocator.passes.base[ip].instancesEntry, isLast ? ctx->entries.end() : ctx->allocator.passes.base[ip + 1].edgesEntry);
-            }
-        }
-    }
     static void writeContextToBuffer(const SceneList& list, Context *ctx, size_t begin, size_t index, size_t contextCount, Buffer& buffer) {
         size_t i, j, count, size, ip, iz, ic, end, instbegin, passsize;
         {
@@ -1993,9 +1990,8 @@ struct Rasterizer {
             Allocator::Pass *pass = ctx->allocator.passes.base + ip;
             passsize = (ip + 1 < count ? (pass + 1)->idx : ctx->blends.end) - pass->idx;
             instbegin = begin + pass->count() * sizeof(Edge);
-            pass->edgesEntry = ctx->entries.end();
             if (pass->count()) {
-                ctx->entries.add(Buffer::Entry(Buffer::kInstancesBase, instbegin, pass->groupHeight));
+                ctx->entries.add(Buffer::Entry(Buffer::kInstancesBase, instbegin, pass->height));
                 
                 quadEdge = (Edge *)(buffer.base + begin), end = begin + pass->counts[Allocator::kQuadEdges] * sizeof(Edge);
                 ctx->entries.add(Buffer::Entry(Buffer::kQuadEdges, begin, end)), begin = end;
@@ -2010,7 +2006,6 @@ struct Rasterizer {
                 ctx->entries.add(Buffer::Entry(Buffer::kQuadMolecules, begin, end)), begin = end;
                 assert(begin == instbegin);
             }
-            pass->instancesEntry = ctx->entries.end();
             
             // The pass's instances are batches, split by clip commands, & where draws with blend modes begin & end, unless there are
             // more than kMaxBlendBatches of those
@@ -2031,8 +2026,6 @@ struct Rasterizer {
                     dst += inst->data.count;
                 } else {
                     dst->iz = inst->iz, dst->quad = inst->quad;
-                    if (dst->quad.cell.ox != kNullIndex)
-                        dst->quad.cell.oy += pass->offset;
                     ic = dst - dst0, dst++;
                     bool fast = inst->iz & Instance::kFastEdges;
                     

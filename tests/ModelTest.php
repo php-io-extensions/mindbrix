@@ -104,7 +104,8 @@ describe('RAPath', function () {
 
     it('takes only a CFType wrapping a CGPathRef', function () {
         expect(fn () => RAPath::initWithCGPath(CFAllocator::getDefault()))->toThrow(TypeError::class, 'must wrap a CGPathRef')
-            ->and(fn () => RAPath::init()->addCGPath(CFAllocator::getDefault()))->toThrow(TypeError::class, 'must wrap a CGPathRef');
+            ->and(fn () => RAPath::init()->addCGPath(CFAllocator::getDefault()))->toThrow(TypeError::class, 'must wrap a CGPathRef')
+            ->and(fn () => RAPath::init()->writeToCGPath(CFAllocator::getDefault()))->toThrow(TypeError::class, 'must wrap a CGPathRef');
     });
 });
 
@@ -129,7 +130,7 @@ describe('RADraw', function () {
         $draw->setWidth(3);
         $draw->setEvenOdd(true);
         $draw->setCapStyle(RACapStyle::ROUND);
-        $draw->setJoinStyle(RAJoinStyle::ROUND);
+        $draw->setJoinStyle(RAJoinStyle::BEVEL);
         $draw->setClip(new NSRect(1, 2, 30, 40));
         $draw->setClipPath($clipPath);
         $draw->setClipEvenOdd(true);
@@ -141,7 +142,7 @@ describe('RADraw', function () {
         expect($draw->width())->toBe(3.0)
             ->and($draw->evenOdd())->toBeTrue()
             ->and($draw->capStyle())->toBe(RACapStyle::ROUND)
-            ->and($draw->joinStyle())->toBe(RAJoinStyle::ROUND)
+            ->and($draw->joinStyle())->toBe(RAJoinStyle::BEVEL)
             ->and(rectArray($draw->clip()))->toBe([1.0, 2.0, 30.0, 40.0])
             ->and($draw->clipPath())->toBeInstanceOf(RAPath::class)
             ->and($draw->clipEvenOdd())->toBeTrue()
@@ -162,16 +163,28 @@ describe('RADraw', function () {
         expect($draw->clip()->width)->toBe(PHP_FLOAT_MAX);
     });
 
-    it('round-trips every cap style and blend mode', function () {
+    it('round-trips every cap style, join style and blend mode', function () {
         $draw = RADraw::init();
         foreach (RACapStyle::cases() as $cap) {
             $draw->setCapStyle($cap);
             expect($draw->capStyle())->toBe($cap);
         }
+        expect(RAJoinStyle::cases())->toBe([RAJoinStyle::MITER, RAJoinStyle::ROUND, RAJoinStyle::BEVEL]);
+        foreach (RAJoinStyle::cases() as $join) {
+            $draw->setJoinStyle($join);
+            expect($draw->joinStyle())->toBe($join);
+        }
         foreach (RABlendMode::cases() as $mode) {
             $draw->setBlendMode($mode);
             expect($draw->blendMode())->toBe($mode);
         }
+    });
+
+    it('stores a negative width, which Rasterizer draws at device width', function () {
+        $draw = RADraw::init();
+        $draw->setWidth(-1);
+
+        expect($draw->width())->toBe(-1.0);
     });
 });
 

@@ -39,7 +39,7 @@ struct RasterizerWinding {
                     continue;
                 const float dw = draw.width * (draw.width <= 0.f ? -1.f : m.scale());
                 static const float miterOutset = 0.5f / sqrtf(0.5f * (1.f + float(kMiterLimit)));
-                const float outset = dw * (draw.flags & Ra::Draw::kRoundJoin ? 1.f : miterOutset);
+                const float outset = dw * (draw.flags & (Ra::Draw::kRoundJoin | Ra::Draw::kBevelJoin) ? 1.f : miterOutset);
                 const Ra::Bounds clip = Ra::Bounds(draw.bnds.quad(m)).inset(-outset, -outset);
                 if (!clip.intersects(r))
                     continue;
@@ -119,12 +119,12 @@ struct RasterizerWinding {
             float ax = x1 - x0, ay = y1 - y0, bx = x2 - x1, by = y2 - y1, ra, rb, dot, cross;
             ra = 1.f / sqrtf(ax * ax + ay * ay), rb = 1.f / sqrtf(bx * bx + by * by);
             ax *= ra, ay *= ra, bx *= rb, by *= rb, dot = ax * bx + ay * by, cross = ax * by - ay * bx;
-            if (dot < kMiterLimit)
-                cap(x1, y1, ax, ay), cap(x1, y1, -bx, -by);
-            else if (flags & Ra::Draw::kRoundJoin)
+            if (flags & Ra::Draw::kRoundJoin)
                 disc(x1, y1);
             else if (cross != 0.f) {
-                float s = cross > 0.f ? -dw : dw, nax = -ay * s, nay = ax * s, nbx = -by * s, nby = bx * s, k = 1.f / (1.f + dot);
+                // The join's outer vertex is the mitre's tip, or the middle of the bevel's edge
+                float s = cross > 0.f ? -dw : dw, nax = -ay * s, nay = ax * s, nbx = -by * s, nby = bx * s;
+                float k = dot < kMiterLimit || (flags & Ra::Draw::kBevelJoin) ? 0.5f : 1.f / (1.f + dot);
                 quad(x1, y1, x1 + nax, y1 + nay, x1 + (nax + nbx) * k, y1 + (nay + nby) * k, x1 + nbx, y1 + nby);
             }
         }
