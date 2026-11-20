@@ -34,7 +34,7 @@ Crash sweep: before the fix, 425 calls, no crash, 3 hangs, all the one upstream 
 Upstream bug (found by the sweep, 2026-11-13): `GeometryWriter::Cubic` and `::Quadratic` keep their subdivision count in a float and loop `while (--count)`. NaN, infinite, or above-2^24 counts never reach 0 (INF/NaN coordinates, or Metal-path device coordinates from about 1e19 whose squares overflow float): the display never returns and memory grows until the process is killed.
 
 Fixed both ways (Angel's decision):
-- Vendored patch, 7 lines in `Rasterizer.hpp`: such a count becomes 1, the curve drawn as one piece; terminating counts untouched. The only difference from upstream (still present at `fixes` @ 2f57db8); Angel offers it upstream.
+- Vendored patch, 7 lines in `Rasterizer.hpp`: such a count becomes 1, the curve drawn as one piece; terminating counts untouched. The only difference from upstream (still present at `fixes` @ 58ffc36); Angel offers it upstream.
 - Binding refusals (`ValueError`) for non-finite path coordinates, shape rects, corner sizes, transform fields, stroke widths, dash phase and lengths. Clip rects exempt (`CGRectNull`).
 
 A second hang on the same 1e20-scale finite geometry, new at `fixes` @ 2f57db8: `Outliner::Cubic` (tangent-preserving cubics for strokes) sets `m = ceilf(cbrtf(a / (54 * allowed)))` and loops `for (i = 1; i <= m; i++)`. When `a` is Inf, `m` is Inf and the loop never ends. The one-patch rule leaves this unpatched. Fills use the patched `GeometryWriter`; strokes do not.

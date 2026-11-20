@@ -2,7 +2,7 @@
 
 1:1 PHP bindings of [mindbrix/Rasterizer](https://github.com/mindbrix/Rasterizer), a GPU vector renderer for macOS built on Metal. Paths, paints, gradients, images, text, SVG and PDF go into scenes; a `RasterizerView` draws a list of scenes each display frame.
 
-The extension is named `mindbrix` so it is not confused with other rasterizers. Rasterizer is compiled in from `lib/Rasterizer` (commit `2f57db8`, the `fixes` branch, with one local fix for a curve-subdivision hang, offered upstream); nothing needs installing besides ext-appkit, which mindbrix's classes build on.
+The extension is named `mindbrix` so it is not confused with other rasterizers. Rasterizer is compiled in from `lib/Rasterizer` (commit `58ffc36`, the `fixes` branch, with one local fix for a curve-subdivision hang, offered upstream); nothing needs installing besides ext-appkit, which mindbrix's classes build on.
 
 ## Basic usage
 
@@ -84,7 +84,7 @@ php --ri mindbrix
 ```
 mindbrix support => enabled
 Version => 0.11.0
-mindbrix/Rasterizer => 2f57db8 + curve-subdivision patch
+mindbrix/Rasterizer => 58ffc36 + curve-subdivision patch
 ```
 
 ## API

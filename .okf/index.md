@@ -4,7 +4,7 @@ okf_version: "0.2"
 
 # ext-mindbrix
 
-1:1 PHP bindings of mindbrix/Rasterizer (commit 2f57db8, its `fixes` branch; vendored, one local fix for a curve-subdivision hang), a Metal vector renderer, on ext-appkit's object model. Version 0.11.0. macOS 14+ only. PHP 8.4 NTS + ZTS.
+1:1 PHP bindings of mindbrix/Rasterizer (commit 58ffc36, its `fixes` branch; vendored, one local fix for a curve-subdivision hang), a Metal vector renderer, on ext-appkit's object model. Version 0.11.0. macOS 14+ only. PHP 8.4 NTS + ZTS.
 
 # API
 

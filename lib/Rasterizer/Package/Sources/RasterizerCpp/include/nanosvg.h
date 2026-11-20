@@ -377,6 +377,7 @@ enum NSVGgradientUnits {
 
 #define NSVG_MAX_DASHES 8
 #define NSVG_MAX_CLIPS 8	// Clip paths clipping a shape, from it & its ancestors
+#define NSVG_CLIP_BUCKETS 1024	// A power of 2
 
 enum NSVGunits {
 	NSVG_UNITS_USER,
@@ -483,7 +484,7 @@ typedef struct NSVGparser
 	char defsFlag;
 	char clipFlag;				// Whether a <clipPath>'s content is being parsed into its shapes
 	struct NSVGdocument* doc;	// The elements, by id, for <use> & clip-path
-	struct NSVGclipCache* clipCache;
+	struct NSVGclipCache* clipCache[NSVG_CLIP_BUCKETS];	// The clip paths made, hashed by their <clipPath> & transform
 } NSVGparser;
 
 static void nsvg__xformIdentity(float* t)
@@ -711,7 +712,7 @@ static void nsvg__deleteGradientData(NSVGgradientData* grad)
 }
 
 struct NSVGclipCache;
-static void nsvg__deleteClipCache(struct NSVGclipCache* c);
+static void nsvg__deleteClipCache(struct NSVGclipCache** buckets);
 
 static void nsvg__deleteParser(NSVGparser* p)
 {
@@ -1736,7 +1737,7 @@ static void nsvg__parseUrl(char* id, const char* str)
 	str += 4; // "url(";
 	if (*str == '#')
 		str++;
-	while (i < 63 && *str != ')') {
+	while (i < 63 && *str && *str != ')') {
 		id[i] = *str++;
 		i++;
 	}
@@ -2897,6 +2898,9 @@ static void nsvg__content(void* ud, const char* s)
 // nested <use>s can grow exponentially
 
 #define NSVG_MAX_USE_NODES (1 << 20)	// Nodes drawn by <use>s
+// How deep the replay goes, through children, <use>s & clip paths, as it recurses. Deeper elements aren't drawn. An element
+// pushes its attributes, & at most one more set, for its clip path or a <use>'s <symbol>, so the attribute stack never fills
+#define NSVG_MAX_DEPTH ((NSVG_MAX_ATTR - 1) / 2)
 
 typedef struct NSVGnode {
 	const char* name;
@@ -2921,6 +2925,7 @@ typedef struct NSVGdocument {
 	int nids;
 	int useNodes;				// Nodes <use>s can still draw
 	int useDepth;				// How many <use>s are being drawn
+	int depth;					// How many nodes are being drawn, each inside the last
 	char failed;
 } NSVGdocument;
 
@@ -3113,7 +3118,7 @@ static void nsvg__drawUse(NSVGparser* p, NSVGdocument* d, NSVGnode* use)
 
 // Parses every gradient, & its stops, before the replay, as shapes can refer to gradients after them, e.g. in a <defs> at the
 // end. Each is parsed in its own attributes, as the parser's are its ancestors', which it mustn't change
-static void nsvg__parseGradients(NSVGparser* p, NSVGnode* n)
+static void nsvg__parseGradients(NSVGparser* p, NSVGnode* n, int depth)
 {
 	NSVGnode* c;
 	for (c = n->child; c; c = c->next) {
@@ -3125,8 +3130,8 @@ static void nsvg__parseGradients(NSVGparser* p, NSVGnode* n)
 				if (strcmp(stop->name, "stop") == 0)
 					nsvg__parseGradientStop(p, stop->attr);
 			nsvg__popAttr(p);
-		} else
-			nsvg__parseGradients(p, c);
+		} else if (depth < NSVG_MAX_DEPTH)
+			nsvg__parseGradients(p, c, depth + 1);
 	}
 }
 
@@ -3134,31 +3139,30 @@ static void nsvg__parseGradients(NSVGparser* p, NSVGnode* n)
 // don't pop attributes they didn't push. Gradients are parsed before the replay, so are skipped
 static void nsvg__drawNode(NSVGparser* p, NSVGdocument* d, NSVGnode* n)
 {
-	int skip;
-	if (n->active || (d->useDepth && d->useNodes-- <= 0))
+	if (n->active || d->depth >= NSVG_MAX_DEPTH || (d->useDepth && d->useNodes-- <= 0))
 		return;
 	if (strcmp(n->name, "linearGradient") == 0 || strcmp(n->name, "radialGradient") == 0)
 		return;
+	d->depth++;
 	if (nsvg__isUndrawnElement(n->name)) {	// Only its gradients are parsed, as in <defs>
 		char defsFlag = p->defsFlag;
 		p->defsFlag = 1;
 		nsvg__drawChildren(p, d, n);
 		p->defsFlag = defsFlag;
-		return;
-	}
-	if (strcmp(n->name, "use") == 0) {
+	} else if (strcmp(n->name, "use") == 0) {
 		if (!p->defsFlag)
 			nsvg__drawUse(p, d, n);
-		return;
+	} else {
+		int skip = p->defsFlag && !nsvg__isGradientElement(n->name);
+		if (!skip)
+			nsvg__startElement(p, n->name, n->attr);
+		n->active = 1;
+		nsvg__drawChildren(p, d, n);
+		n->active = 0;
+		if (!skip)
+			nsvg__endElement(p, n->name);
 	}
-	skip = p->defsFlag && !nsvg__isGradientElement(n->name);
-	if (!skip)
-		nsvg__startElement(p, n->name, n->attr);
-	n->active = 1;
-	nsvg__drawChildren(p, d, n);
-	n->active = 0;
-	if (!skip)
-		nsvg__endElement(p, n->name);
+	d->depth--;
 }
 
 // clip-path support. A clip path is parsed where it's referred to, in the referring element's user space, or for
@@ -3174,12 +3178,16 @@ typedef struct NSVGclipCache {
 	struct NSVGclipCache* next;
 } NSVGclipCache;
 
-static void nsvg__deleteClipCache(NSVGclipCache* c)
+static void nsvg__deleteClipCache(NSVGclipCache** buckets)
 {
-	while (c) {
-		NSVGclipCache* next = c->next;
-		free(c);
-		c = next;
+	int i;
+	for (i = 0; i < NSVG_CLIP_BUCKETS; i++) {
+		NSVGclipCache* c = buckets[i];
+		while (c) {
+			NSVGclipCache* next = c->next;
+			free(c);
+			c = next;
+		}
 	}
 }
 
@@ -3210,11 +3218,12 @@ static int nsvg__isObjectBoundingBoxClip(NSVGnode* n)
 static NSVGclipPath* nsvg__clipInstance(NSVGparser* p, const char* id, const float* xform, const float* bounds)
 {
 	NSVGnode* n = nsvg__findClipPath(p, id);
-	NSVGclipCache* c;
+	NSVGclipCache *c, **bucket;
 	NSVGclipPath* clip;
 	NSVGattrib* attr;
 	NSVGshape *shapes, *tail;
 	float t[6];
+	unsigned int hash = 2166136261u, i;
 	char defsFlag;
 	if (n == NULL || n->active)
 		return NULL;
@@ -3226,7 +3235,10 @@ static NSVGclipPath* nsvg__clipInstance(NSVGparser* p, const char* id, const flo
 		b[0] = bounds[2] - bounds[0], b[1] = 0, b[2] = 0, b[3] = bounds[3] - bounds[1], b[4] = bounds[0], b[5] = bounds[1];
 		nsvg__xformPremultiply(t, b);
 	}
-	for (c = p->clipCache; c; c = c->next)
+	for (i = 0; i < sizeof(t); i++)
+		hash = (hash ^ ((const unsigned char*)t)[i]) * 16777619u;
+	bucket = &p->clipCache[(hash ^ nsvg__hashId(id)) & (NSVG_CLIP_BUCKETS - 1)];
+	for (c = *bucket; c; c = c->next)
 		if (c->node == n && memcmp(c->xform, t, sizeof(t)) == 0)
 			return c->clip;
 
@@ -3256,8 +3268,8 @@ static NSVGclipPath* nsvg__clipInstance(NSVGparser* p, const char* id, const flo
 	clip->next = p->image->clipPaths;
 	p->image->clipPaths = clip;
 	c->node = n, memcpy(c->xform, t, sizeof(t)), c->clip = clip;
-	c->next = p->clipCache;
-	p->clipCache = c;
+	c->next = *bucket;
+	*bucket = c;
 	return clip;
 }
 
@@ -3480,7 +3492,7 @@ NSVGimage* nsvgParse(char* input, const char* units, float dpi)
 		nsvg__parseXML(input, nsvg__docStartElement, nsvg__docEndElement, nsvg__content, &d);
 		nsvg__indexDocument(&d);
 		p->doc = &d;
-		nsvg__parseGradients(p, &d.root);
+		nsvg__parseGradients(p, &d.root, 0);
 		nsvg__drawChildren(p, &d, &d.root);
 		p->doc = NULL;
 		nsvg__deleteDocument(&d);

@@ -12,7 +12,7 @@ generated: { by: claude-opus/5.5, at: 2026-11-13T00:00:00Z }
 
 1. Install ext-appkit into the same PHP first.
 2. `./install-macos.sh` → Homebrew `php@8.4` and `php@8.4-zts`; builds in a temp copy, signs ad hoc, writes `30-mindbrix.ini`.
-3. `php --ri mindbrix` → version 0.11.0, Rasterizer `2f57db8`.
+3. `php --ri mindbrix` → version 0.11.0, Rasterizer `58ffc36`.
 4. `composer install && php -d memory_limit=128M vendor/bin/pest` on both PHPs (41 tests). Gate commits on Pest's exit code.
 
 Nothing is shown on screen: views render off-screen via `displayIfNeeded()`.
